@@ -5,7 +5,7 @@ Run:  python -m src.train
 from pathlib import Path
 
 import torch
-from datasets import load_from_disk
+from datasets import load_dataset
 from peft import LoraConfig as PeftLoraConfig, TaskType, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
@@ -18,7 +18,7 @@ from transformers import (
 from src.config import lora_cfg, model_cfg, train_cfg
 from src.dataset import build_dataset
 
-DATA_PATH = Path(__file__).parent.parent / "data" / "game_dataset"
+DATA_PATH = Path(__file__).parent.parent / "data" / "game_dataset.parquet"
 
 
 def tokenize(batch, tokenizer):
@@ -36,7 +36,7 @@ def tokenize(batch, tokenizer):
 def main():
     # ── dataset ───────────────────────────────────────────────────────────────
     if DATA_PATH.exists():
-        ds = load_from_disk(str(DATA_PATH))
+        ds = load_dataset("parquet", data_files=str(DATA_PATH), split="train")
     else:
         ds = build_dataset(2000, DATA_PATH)
 

@@ -39,11 +39,11 @@ def build_dataset(n: int = 2000, save_path: Path | None = None) -> Dataset:
     samples = generate_samples(n)
     ds = Dataset.from_list(samples)
     if save_path:
-        save_path.mkdir(parents=True, exist_ok=True)
-        ds.save_to_disk(str(save_path))
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        ds.to_parquet(str(save_path))
         print(f"Saved {len(ds)} samples → {save_path}")
     return ds
 
 
 if __name__ == "__main__":
-    build_dataset(2000, Path(__file__).parent.parent / "data" / "game_dataset")
+    build_dataset(2000, Path(__file__).parent.parent / "data" / "game_dataset.parquet")
