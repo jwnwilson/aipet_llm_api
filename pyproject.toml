@@ -20,4 +20,6 @@ dev = [
 train = [
     "datasets>=4.8.5",
     "transformers>=5.7.0",
+    "torch>=2.0",
+    "accelerate>=1.1.0",
 ]

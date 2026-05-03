@@ -1,0 +1,34 @@
+# Virtual environments
+.venv
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build / dist
+dist/
+build/
+*.egg-info/
+
+# Coverage
+.coverage
+htmlcov/
+
+# macOS
+.DS_Store
+
+# Environment files
+.env
+.env.*
+
+# Models (large binaries — store separately)
+models/aipet.gguf
+models/checkpoints/
+
+# Data (generated — not source-controlled)
+data/train.jsonl
+data/eval.jsonl

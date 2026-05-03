@@ -90,18 +90,3 @@ Hand each task block from [docs/plan.md](docs/plan.md) to a sub-agent:
 - Tasks within the same phase are independent — run them in parallel.
 - Tasks in later phases depend on all earlier phases completing first (except Phase 4, which runs alongside Phase 3).
 
-### Regenerating the plan
-
-Ask: *"Read the PRD and regenerate the plan in docs/plan.md"* using this structure:
-
-```
-## Phase N: <name>
-> Prerequisite: Phase N-1 complete (or "none" for Phase 1)
-
-### Task N.1 — <title>
-**Goal:** One sentence.
-**Inputs:** Files/data this task reads.
-**Outputs:** Files/data this task produces.
-**Steps:** Numbered list of concrete actions.
----
-```
