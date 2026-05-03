@@ -7,9 +7,9 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.api.app import get_adapter
-from src.domain.models import InferenceRequest, InferenceResponse
-from src.domain.ports import InferencePort
+from api.app import get_adapter
+from domain.models import InferenceRequest, InferenceResponse
+from domain.ports import InferencePort
 
 logger = logging.getLogger(__name__)
 

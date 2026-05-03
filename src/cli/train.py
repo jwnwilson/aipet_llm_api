@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from src.domain.train.trainer import (
+from domain.train.trainer import (
     DEFAULT_EPOCHS,
     DEFAULT_EVAL_DATA,
     DEFAULT_MODEL,

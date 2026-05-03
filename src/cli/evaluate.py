@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from src.domain.train.evaluate import (
+from domain.train.evaluate import (
     evaluate,
     infer_hf,
     infer_llama_cpp,

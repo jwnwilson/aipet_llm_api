@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from src.domain.train.export import export
+from domain.train.export import export
 
 
 def main(argv: list[str] | None = None) -> None:

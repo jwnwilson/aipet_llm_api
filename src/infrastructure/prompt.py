@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import re
 
-from src.domain.actions import Action
-from src.domain.models import InferenceRequest, InferenceResponse, json_schema
+from domain.actions import Action
+from domain.models import InferenceRequest, InferenceResponse, json_schema
 
 # Actions that are always available regardless of scene contents.
 _ALWAYS_AVAILABLE = {Action.TOILET, Action.IDLE, Action.EXPLORE}

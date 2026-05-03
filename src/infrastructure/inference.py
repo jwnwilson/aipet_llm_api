@@ -7,10 +7,10 @@ from typing import Any
 
 import llama_cpp
 
-from src.domain.actions import Action
-from src.domain.models import InferenceRequest, InferenceResponse
-from src.domain.ports import InferencePort
-from src.infrastructure.prompt import build_prompt, parse_response
+from domain.actions import Action
+from domain.models import InferenceRequest, InferenceResponse
+from domain.ports import InferencePort
+from infrastructure.prompt import build_prompt, parse_response
 
 logger = logging.getLogger(__name__)
 

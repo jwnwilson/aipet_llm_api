@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from src.domain.train.dataset import EVAL_SIZE, SEED, TRAIN_SIZE, generate
+from domain.train.dataset import EVAL_SIZE, SEED, TRAIN_SIZE, generate
 
 
 def main(argv: list[str] | None = None) -> None:

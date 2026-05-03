@@ -6,15 +6,15 @@ import json
 import random
 from pathlib import Path
 
-from src.domain.actions import Action
-from src.domain.models import (
+from domain.actions import Action
+from domain.models import (
     InferenceRequest,
     InferenceResponse,
     PetStats,
     SceneData,
     SceneObject,
 )
-from src.infrastructure.prompt import build_prompt
+from infrastructure.prompt import build_prompt
 
 SEED = 42
 TRAIN_SIZE = 2000

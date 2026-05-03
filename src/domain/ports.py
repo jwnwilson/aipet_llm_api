@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from src.domain.models import InferenceRequest, InferenceResponse
+from domain.models import InferenceRequest, InferenceResponse
 
 
 class InferencePort(ABC):

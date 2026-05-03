@@ -2,9 +2,9 @@
 
 import pytest
 
-from src.domain.actions import Action
-from src.domain.models import InferenceRequest, InferenceResponse
-from src.domain.ports import InferencePort
+from domain.actions import Action
+from domain.models import InferenceRequest, InferenceResponse
+from domain.ports import InferencePort
 
 
 class FakeInferenceAdapter(InferencePort):
@@ -50,7 +50,7 @@ class TestInferencePort:
 @pytest.fixture()
 def inference_request() -> InferenceRequest:
     """Return a minimal but valid ``InferenceRequest``."""
-    from src.domain.models import PetStats, SceneData
+    from domain.models import PetStats, SceneData
 
     scene = SceneData(objects=[], tick=0)
     stats = PetStats(

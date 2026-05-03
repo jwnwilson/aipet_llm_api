@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
-from src.infrastructure.prompt import parse_response
+from infrastructure.prompt import parse_response
 
 PASS_THRESHOLD = 0.95
 
@@ -35,7 +35,7 @@ def infer_hf(pipe: Any, prompt: str) -> str:
 
 
 def load_llama_cpp_adapter(model_path: str) -> Any:
-    from src.infrastructure.inference import LlamaCppInferenceAdapter
+    from infrastructure.inference import LlamaCppInferenceAdapter
     return LlamaCppInferenceAdapter(model_path=model_path)
 
 

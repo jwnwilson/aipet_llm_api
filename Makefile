@@ -11,7 +11,7 @@ help:
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
 serve: ## Start the FastAPI server  (MODEL_PATH=... make serve)
-	MODEL_PATH=$(MODEL_PATH) uv run uvicorn src.api.app:app \
+	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run uvicorn api.app:app \
 		--host $(HOST) --port $(PORT) --reload
 
 test: ## Run all tests
@@ -27,21 +27,21 @@ test-cli: ## Run CLI tests only
 	uv run pytest tests/cli/ -v
 
 data: ## Generate synthetic training + eval data  (DATA_DIR=... to override output path)
-	uv run python src/cli/generate_dataset.py --data-dir $(DATA_DIR)
+	PYTHONPATH=src uv run python src/cli/generate_dataset.py --data-dir $(DATA_DIR)
 
 train: ## Fine-tune the model  (DRY_RUN=1 for smoke test, DATA_DIR/OUTPUT_DIR to override paths)
-	uv run python src/cli/train.py \
+	PYTHONPATH=src uv run python src/cli/train.py \
 		$(if $(DRY_RUN),--dry-run) \
 		--train-data $(DATA_DIR)/train.jsonl \
 		--eval-data $(DATA_DIR)/eval.jsonl \
 		--output-dir $(OUTPUT_DIR)
 
 evaluate: ## Evaluate schema-valid response rate (must pass ≥ 95%)
-	uv run python src/cli/evaluate.py \
+	PYTHONPATH=src uv run python src/cli/evaluate.py \
 		--model-path $(MODEL_PATH) --eval-data $(DATA_DIR)/eval.jsonl
 
 export: ## Convert HF checkpoint → GGUF Q4_K_M  → models/aipet.gguf
-	uv run python src/cli/export.py
+	PYTHONPATH=src uv run python src/cli/export.py
 
 infer: ## Run a single inference from the CLI  (MODEL_PATH=... make infer)
-	uv run python src/cli/infer.py --model-path $(MODEL_PATH) < $(or $(INPUT),/dev/stdin)
+	PYTHONPATH=src uv run python src/cli/infer.py --model-path $(MODEL_PATH) < $(or $(INPUT),/dev/stdin)

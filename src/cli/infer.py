@@ -6,8 +6,8 @@ import argparse
 import json
 import sys
 
-from src.domain.models import InferenceRequest
-from src.infrastructure.inference import LlamaCppInferenceAdapter
+from domain.models import InferenceRequest
+from infrastructure.inference import LlamaCppInferenceAdapter
 
 
 def main(argv: list[str] | None = None) -> None:

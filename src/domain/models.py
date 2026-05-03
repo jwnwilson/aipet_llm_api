@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from src.domain.actions import Action
+from domain.actions import Action
 
 
 class PetStats(BaseModel):

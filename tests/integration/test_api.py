@@ -6,10 +6,10 @@ import pytest_asyncio
 import httpx
 from httpx import ASGITransport
 
-from src.api.app import app, configure
-from src.domain.actions import Action
-from src.domain.models import InferenceRequest, InferenceResponse
-from src.domain.ports import InferencePort
+from api.app import app, configure
+from domain.actions import Action
+from domain.models import InferenceRequest, InferenceResponse
+from domain.ports import InferencePort
 
 
 class FakeInferenceAdapter(InferencePort):

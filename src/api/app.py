@@ -8,7 +8,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
-from src.domain.ports import InferencePort
+from domain.ports import InferencePort
 
 # ---------------------------------------------------------------------------
 # Adapter singleton — wired at startup or via configure() in tests
@@ -39,7 +39,7 @@ def configure(adapter: InferencePort) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    from src.infrastructure.inference import LlamaCppInferenceAdapter
+    from infrastructure.inference import LlamaCppInferenceAdapter
 
     model_path = os.getenv("MODEL_PATH", "models/aipet.gguf")
     configure(LlamaCppInferenceAdapter(model_path=model_path))
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # Application
 # ---------------------------------------------------------------------------
 
-from src.api.routes import router  # noqa: E402 — imported after lifespan defined
+from api.routes import router  # noqa: E402 — imported after lifespan defined
 
 app = FastAPI(title="aipet-llm inference service", lifespan=lifespan)
 app.include_router(router)
