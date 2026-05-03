@@ -130,6 +130,24 @@ class TestLlamaCppInferenceAdapter:
 
             mock_llama_cls.assert_called_once()
 
+    def test_full_inference_path_text_extracted_and_parsed(
+        self, inference_request: InferenceRequest
+    ) -> None:
+        """End-to-end: adapter extracts text from completion dict and passes it to parse_response."""
+        raw_json = json.dumps({"action": "IDLE"})
+        completion = {"choices": [{"text": raw_json}]}
+        mock_llm_instance = MagicMock(return_value=completion)
+
+        with patch("llama_cpp.Llama", return_value=mock_llm_instance):
+            adapter = _make_adapter()
+            response = adapter.infer(inference_request)
+
+        # parse_response ran for real on the LLM output — not short-circuited by a mock.
+        assert response.action == Action.IDLE
+        mock_llm_instance.assert_called_once()
+        called_prompt = mock_llm_instance.call_args[0][0]
+        assert isinstance(called_prompt, str) and len(called_prompt) > 0
+
     def test_model_loaded_only_once_across_multiple_calls(
         self, inference_request: InferenceRequest
     ) -> None:
