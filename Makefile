@@ -1,8 +1,10 @@
 MODEL_PATH ?= models/aipet.gguf
-HOST      ?= 0.0.0.0
-PORT      ?= 8000
+HOST       ?= 0.0.0.0
+PORT       ?= 8000
+DATA_DIR   ?= data
+OUTPUT_DIR ?= models/checkpoints
 
-.PHONY: serve test test-unit test-integration data train evaluate export infer help
+.PHONY: serve test test-unit test-integration test-cli data train evaluate export infer help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -21,24 +23,25 @@ test-unit: ## Run unit tests only
 test-integration: ## Run integration tests only
 	uv run pytest tests/integration/ -v
 
-data: ## Generate synthetic training + eval data  → data/train.jsonl, data/eval.jsonl
-	uv run python scripts/generate_dataset.py
+test-cli: ## Run CLI tests only
+	uv run pytest tests/cli/ -v
 
-train: ## Fine-tune the model on data/train.jsonl  (add DRY_RUN=1 for a smoke test)
-	uv run python scripts/train.py $(if $(DRY_RUN),--dry-run)
+data: ## Generate synthetic training + eval data  (DATA_DIR=... to override output path)
+	uv run python src/cli/generate_dataset.py --data-dir $(DATA_DIR)
+
+train: ## Fine-tune the model  (DRY_RUN=1 for smoke test, DATA_DIR/OUTPUT_DIR to override paths)
+	uv run python src/cli/train.py \
+		$(if $(DRY_RUN),--dry-run) \
+		--train-data $(DATA_DIR)/train.jsonl \
+		--eval-data $(DATA_DIR)/eval.jsonl \
+		--output-dir $(OUTPUT_DIR)
 
 evaluate: ## Evaluate schema-valid response rate (must pass ≥ 95%)
-	uv run python scripts/evaluate.py \
-		--model-path $(MODEL_PATH) --eval-data data/eval.jsonl
+	uv run python src/cli/evaluate.py \
+		--model-path $(MODEL_PATH) --eval-data $(DATA_DIR)/eval.jsonl
 
 export: ## Convert HF checkpoint → GGUF Q4_K_M  → models/aipet.gguf
-	uv run python scripts/export.py
+	uv run python src/cli/export.py
 
 infer: ## Run a single inference from the CLI  (MODEL_PATH=... make infer)
-	uv run python -c "\
-import json, sys; \
-from src.infrastructure.inference import LlamaCppInferenceAdapter; \
-from src.domain.models import InferenceRequest; \
-req = InferenceRequest.model_validate(json.load(sys.stdin)); \
-adapter = LlamaCppInferenceAdapter(model_path='$(MODEL_PATH)'); \
-print(adapter.infer(req).model_dump_json(indent=2))" < $(or $(INPUT),/dev/stdin)
+	uv run python src/cli/infer.py --model-path $(MODEL_PATH) < $(or $(INPUT),/dev/stdin)

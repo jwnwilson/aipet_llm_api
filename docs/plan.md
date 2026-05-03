@@ -91,7 +91,7 @@
 ### Task 2.3 — Synthetic training dataset generator
 **Goal:** Generate a labelled dataset of (scene + pet stats) → action pairs for fine-tuning.
 **Inputs:** `src/domain/models.py`
-**Outputs:** `scripts/generate_dataset.py`, `data/train.jsonl`, `data/eval.jsonl`
+**Outputs:** `src/domain/train/dataset.py`, `src/cli/generate_dataset.py`, `data/train.jsonl`, `data/eval.jsonl`
 **Steps:**
 1. Write a script that generates random `InferenceRequest` instances with varied pet stat profiles (e.g. high hunger → EAT, high tiredness → SLEEP).
 2. Implement a deterministic rule-based labeller to assign ground-truth `Action` based on which stat is highest.
@@ -133,8 +133,8 @@
 
 ### Task 4.1 — Fine-tuning script
 **Goal:** Fine-tune a small base model on the synthetic dataset to output valid structured actions.
-**Inputs:** `data/train.jsonl`, `data/eval.jsonl`, `scripts/train.py`
-**Outputs:** `scripts/train.py`, trained model checkpoint in `models/checkpoints/`
+**Inputs:** `data/train.jsonl`, `data/eval.jsonl`
+**Outputs:** `src/domain/train/trainer.py`, `src/cli/train.py`, trained model checkpoint in `models/checkpoints/`
 **Steps:**
 1. Use HuggingFace `transformers` + `Trainer` to fine-tune a small base model (default: TinyLlama-1.1B or SmolLM-360M).
 2. Use causal LM fine-tuning on the prompt+completion pairs from the dataset.
@@ -145,13 +145,15 @@
 
 ### Task 4.2 — Evaluation & export script
 **Goal:** Measure schema-valid response rate and export the model to GGUF for RPi deployment.
-**Inputs:** `models/checkpoints/`, `data/eval.jsonl`, `scripts/evaluate.py`, `scripts/export.py`
-**Outputs:** `scripts/evaluate.py`, `scripts/export.py`, `models/aipet.gguf`
+**Inputs:** `models/checkpoints/`, `data/eval.jsonl`
+**Outputs:** `src/domain/train/evaluate.py`, `src/cli/evaluate.py`, `src/domain/train/export.py`, `src/cli/export.py`, `models/aipet.gguf`
 **Steps:**
-1. Write `scripts/evaluate.py`: load checkpoint, run inference on all 200 eval examples, compute % responses that parse as valid `InferenceResponse` (target: >95%).
+1. Write `src/domain/train/evaluate.py`: load checkpoint, run inference on all 200 eval examples, compute % responses that parse as valid `InferenceResponse` (target: >95%). Thin CLI wrapper at `src/cli/evaluate.py`.
 2. Print a breakdown of action distribution to catch degenerate models (e.g. always predicting `IDLE`).
-3. Write `scripts/export.py`: convert HuggingFace checkpoint to GGUF format using `llama.cpp`'s `convert_hf_to_gguf.py`, then quantise to Q4_K_M (good RPi balance of size/quality).
+3. Write `src/domain/train/export.py`: convert HuggingFace checkpoint to GGUF format using `llama.cpp`'s `convert_hf_to_gguf.py`, then quantise to Q4_K_M. Thin CLI wrapper at `src/cli/export.py`.
 4. Verify the exported GGUF loads correctly with `LlamaCppInferenceAdapter` and passes the eval suite.
+
+> Do not add scripts to a `scripts/` folder — use `src/cli/` for CLI entrypoints and `src/domain/train/` for training logic.
 ---
 
 ## Phase 5: Deployment
@@ -168,5 +170,29 @@
 4. Write `docker-compose.yml` for local development and single-node RPi 5 deployment.
 5. Write `scripts/deploy.sh` that builds the image for `linux/arm64` and exports as a tarball for transfer to the RPi.
 6. Document the deploy steps in `README.md`.
-7. Note: Kubernetes deployment is deferred to post-v1.
+---
+
+## Post V1
+
+### Task P.1 — Early stopping to protect against overfitting
+**Goal:** Automatically halt training when eval loss stops improving, preventing the model from memorising the synthetic dataset.
+**Inputs:** `scripts/train.py`
+**Outputs:** Updated `scripts/train.py`
+**Steps:**
+1. Import `EarlyStoppingCallback` from `transformers`.
+2. Add a `--patience` CLI argument (default: 3) — number of consecutive eval checkpoints with no improvement before stopping.
+3. Pass `callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]` to `Trainer`.
+4. Log a clear message when early stopping triggers, including the best checkpoint path and best eval loss.
+5. Update the `--dry-run` path to set `patience=1` so it can be exercised in a single step.
+---
+
+### Task P.2 — Kubernetes deployment
+**Goal:** Deploy the inference service on a multi-node Kubernetes cluster for production scaling beyond a single RPi.
+**Inputs:** `Dockerfile`, `docker-compose.yml`
+**Outputs:** `k8s/deployment.yaml`, `k8s/service.yaml`, `k8s/hpa.yaml`
+**Steps:**
+1. Write a `Deployment` manifest using the ARM64 Docker image; set resource requests/limits appropriate for RPi-class nodes.
+2. Write a `Service` manifest (ClusterIP) exposing port 8000.
+3. Write a `HorizontalPodAutoscaler` targeting CPU utilisation at 70%.
+4. Document cluster setup and `kubectl apply` steps in `README.md`.
 ---
