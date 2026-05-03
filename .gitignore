@@ -31,4 +31,5 @@ models/checkpoints/
 
 # Data (generated — not source-controlled)
 data/train.jsonl
-data/eval.jsonl
+data/eval.json
+llama.cpp/
