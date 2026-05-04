@@ -4,8 +4,10 @@ HOST        ?= 0.0.0.0
 PORT        ?= 8000
 DATA_DIR    ?= data
 OUTPUT_DIR  ?= models/checkpoints
+IMAGE       ?= aipet-llm
+RPI_HOST    ?= raspberrypi.local
 
-.PHONY: serve test test-unit test-integration test-cli data train evaluate evaluate-gguf export infer setup-llama help
+.PHONY: serve test test-unit test-integration test-cli data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -60,3 +62,26 @@ export: ## Convert HF checkpoint → GGUF Q4_K_M  → models/aipet.gguf
 
 infer: ## Run a single inference from the CLI  (MODEL_PATH=... make infer)
 	PYTHONPATH=src uv run python src/cli/infer.py --model-path $(MODEL_PATH) < $(or $(INPUT),/dev/stdin)
+
+docker-build: ## Build the ARM64 Docker image  (IMAGE=... to override tag)
+	docker buildx build --platform linux/arm64 -t $(IMAGE):latest --load .
+
+docker-run: ## Run the image locally for smoke-testing  (MODEL_PATH/PORT to override)
+	docker run --rm -p $(PORT):8000 \
+		-v "$(PWD)/models:/app/models:ro" \
+		-e MODEL_PATH=/app/models/aipet.gguf \
+		$(IMAGE):latest
+
+docker-export: ## Save the ARM64 image as a tarball for transfer to the RPi
+	docker save $(IMAGE):latest | gzip > $(IMAGE).tar.gz
+	@echo "Saved to $(IMAGE).tar.gz — transfer with: scp $(IMAGE).tar.gz pi@$(RPI_HOST):~/"
+
+docker-deploy: docker-export ## Build, export, and copy the image to the RPi (RPI_HOST=... to override)
+	scp $(IMAGE).tar.gz pi@$(RPI_HOST):~/
+	ssh pi@$(RPI_HOST) "docker load -i ~/$(IMAGE).tar.gz && docker compose up -d"
+
+request: ## Send a test /infer request to the running API server  (HOST/PORT to override)
+	curl -s -X POST http://$(HOST):$(PORT)/infer \
+		-H "Content-Type: application/json" \
+		-d '{"scene":{"objects":[{"id":"bowl1","type":"bowl","distance":2.5},{"id":"toy1","type":"toy","distance":5.0},{"id":"bed1","type":"bed","distance":8.0}],"tick":42},"pet_stats":{"hunger":0.8,"boredom":0.3,"social":0.2,"toilet":0.1,"tiredness":0.2}}' \
+		| python3 -m json.tool

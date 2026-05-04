@@ -1,0 +1,20 @@
+services:
+  aipet:
+    build:
+      context: .
+      platforms:
+        - linux/arm64
+    image: aipet-llm:latest
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL_PATH: /app/models/aipet.gguf
+    volumes:
+      # Mount models/ so the GGUF can be swapped without rebuilding the image
+      - ./models:/app/models:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

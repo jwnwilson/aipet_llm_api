@@ -14,6 +14,17 @@ from infrastructure.prompt import build_prompt, parse_response
 
 logger = logging.getLogger(__name__)
 
+# Actions that require a target object and the scene types they must come from.
+_ACTION_TARGET_TYPES: dict[Action, set[str]] = {
+    Action.EAT: {"bowl"},
+    Action.DRINK: {"bowl"},
+    Action.PLAY: {"toy"},
+    Action.FETCH: {"toy"},
+    Action.SLEEP: {"bed"},
+    Action.SOCIAL: {"player", "pet"},
+    Action.FOLLOW: {"player", "pet"},
+}
+
 
 class LlamaCppInferenceAdapter(InferencePort):
     """InferencePort implementation backed by a GGUF-quantised model via llama-cpp-python.
@@ -45,6 +56,23 @@ class LlamaCppInferenceAdapter(InferencePort):
             self._llm = self._load_model()
         return self._llm
 
+    def _ensure_target(self, response: InferenceResponse, request: InferenceRequest) -> InferenceResponse:
+        """If action requires a target but model omitted it, pick the closest valid scene object."""
+        if response.target_object_id is not None:
+            return response
+        required_types = _ACTION_TARGET_TYPES.get(response.action)
+        if not required_types:
+            return response
+        candidates = [o for o in request.scene.objects if o.type in required_types]
+        if not candidates:
+            return response
+        closest = min(candidates, key=lambda o: o.distance)
+        return InferenceResponse(
+            action=response.action,
+            target_object_id=closest.id,
+            confidence=response.confidence,
+        )
+
     # ------------------------------------------------------------------
     # InferencePort implementation
     # ------------------------------------------------------------------
@@ -68,7 +96,8 @@ class LlamaCppInferenceAdapter(InferencePort):
                 stop=[],
             )
             raw_text: str = completion["choices"][0]["text"]
-            return parse_response(raw_text)
+            response = parse_response(raw_text)
+            return self._ensure_target(response, request)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Inference failed, returning IDLE fallback. Reason: %s",

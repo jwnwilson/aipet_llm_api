@@ -81,11 +81,13 @@ class TestRealInference:
             response = _adapter().infer(_request(objects=scene_objects, hunger=0.9))
 
         spy.assert_called_once()
-        if response.target_object_id is not None:
-            scene_ids = {o.id for o in scene_objects}
-            assert response.target_object_id in scene_ids, (
-                f"target_object_id {response.target_object_id!r} not in scene {scene_ids}"
-            )
+        scene_ids = {o.id for o in scene_objects}
+        assert response.target_object_id is not None, (
+            f"Got action={response.action} but target_object_id is null — bowl is in scene"
+        )
+        assert response.target_object_id in scene_ids, (
+            f"target_object_id {response.target_object_id!r} not in scene {scene_ids}"
+        )
 
     def test_model_loaded_once_across_calls(self):
         adapter = _adapter()
