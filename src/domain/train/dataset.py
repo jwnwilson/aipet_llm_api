@@ -164,7 +164,7 @@ def make_example(rng: random.Random) -> dict[str, str]:
 
     request = InferenceRequest(scene=scene, pet_stats=stats)
     response = label(request)
-    return {"prompt": build_prompt(request), "completion": response.model_dump_json()}
+    return {"prompt": build_prompt(request), "completion": response.model_dump_json(exclude_none=True)}
 
 
 def generate_examples(n: int, rng: random.Random) -> list[dict[str, str]]:

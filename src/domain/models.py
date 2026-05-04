@@ -37,14 +37,3 @@ class InferenceResponse(BaseModel):
     confidence: float | None = None
 
 
-# Action → required target object type (for reference, used by prompt builder):
-#   EAT, DRINK  → bowl
-#   PLAY, FETCH → toy
-#   SLEEP       → bed
-#   SOCIAL, FOLLOW → player or pet
-#   TOILET, IDLE, EXPLORE → no target required
-
-
-def json_schema() -> dict:
-    """Return the JSON schema for InferenceResponse (used by the prompt builder)."""
-    return InferenceResponse.model_json_schema()

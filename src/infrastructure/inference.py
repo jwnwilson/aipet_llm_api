@@ -14,6 +14,26 @@ from infrastructure.prompt import build_prompt, parse_response
 
 logger = logging.getLogger(__name__)
 
+# GBNF grammar that forces the sampler to emit a valid InferenceResponse JSON.
+# "action" is always first; target_object_id and confidence are optional.
+_RESPONSE_GBNF = (
+    'root ::= "{" ws "\\"action\\"" ws ":" ws action-val trailing ws "}"\n'
+    "ws ::= [ \\t\\n]*\n"
+    'action-val ::= "\\"EAT\\"" | "\\"DRINK\\"" | "\\"PLAY\\"" | "\\"FETCH\\"" | "\\"SLEEP\\"" | "\\"SOCIAL\\"" | "\\"FOLLOW\\"" | "\\"TOILET\\"" | "\\"IDLE\\"" | "\\"EXPLORE\\""\n'
+    "trailing ::= (ws \",\" ws field)*\n"
+    "field ::= target-field | confidence-field\n"
+    'target-field ::= "\\"target_object_id\\"" ws ":" ws (id-str | "null")\n'
+    'confidence-field ::= "\\"confidence\\"" ws ":" ws number\n'
+    'id-str ::= "\\"" [-a-zA-Z0-9_]* "\\""\n'
+    'number ::= [0-9]+ ("." [0-9]+)?\n'
+)
+
+try:
+    _GRAMMAR: llama_cpp.LlamaGrammar | None = llama_cpp.LlamaGrammar.from_string(_RESPONSE_GBNF)
+except Exception as _grammar_exc:
+    logger.warning("Grammar-constrained sampling unavailable: %s", _grammar_exc)
+    _GRAMMAR = None
+
 # Actions that require a target object and the scene types they must come from.
 _ACTION_TARGET_TYPES: dict[Action, set[str]] = {
     Action.EAT: {"bowl"},
@@ -91,10 +111,12 @@ class LlamaCppInferenceAdapter(InferencePort):
             llm = self._get_llm()
             completion: Any = llm(
                 prompt,
-                max_tokens=256,
+                max_tokens=128,
                 temperature=0.1,
-                stop=["\n", "```"],
+                stop=["```"],
+                grammar=_GRAMMAR,
             )
+            logger.info(f"LLM Response: {completion}")
             raw_text: str = completion["choices"][0]["text"]
             response = parse_response(raw_text)
             return self._ensure_target(response, request)

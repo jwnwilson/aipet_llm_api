@@ -6,7 +6,7 @@ import json
 import re
 
 from domain.actions import Action
-from domain.models import InferenceRequest, InferenceResponse, json_schema
+from domain.models import InferenceRequest, InferenceResponse
 
 # Actions that are always available regardless of scene contents.
 _ALWAYS_AVAILABLE = {Action.TOILET, Action.IDLE, Action.EXPLORE}
@@ -56,16 +56,12 @@ def build_prompt(request: InferenceRequest) -> str:
     actions = _available_actions(request)
     actions_str = ", ".join(a.value for a in actions)
 
-    schema = json_schema()
-    schema_str = json.dumps(schema, separators=(",", ":"))
-
     prompt = (
         f"You are an AI pet brain. Choose the best action for the pet.\n"
         f"Stats: {stats_str}\n"
         f"Scene: {scene_str}\n"
         f"Available actions: {actions_str}\n"
-        f"Schema: {schema_str}\n"
-        f"Respond with ONLY a JSON object matching the schema. No extra text."
+        f"Respond with JSON only."
     )
     return prompt
 
