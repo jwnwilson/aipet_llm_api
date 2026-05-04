@@ -87,10 +87,11 @@ class TestBuildPrompt:
         prompt = build_prompt(request)
         assert len(prompt) < 1200, f"Prompt too long: {len(prompt)} chars"
 
-    def test_prompt_contains_schema(self):
+    def test_prompt_does_not_contain_schema(self):
         request = _make_request()
         prompt = build_prompt(request)
-        assert "action" in prompt  # schema field name should appear
+        assert "Schema:" not in prompt
+        assert "$defs" not in prompt
 
     def test_prompt_instructs_json_only(self):
         request = _make_request()
