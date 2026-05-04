@@ -33,7 +33,7 @@ class LlamaCppInferenceAdapter(InferencePort):
     construction is cheap and test set-up does not require a real model file.
     """
 
-    def __init__(self, model_path: str, context_size: int = 512) -> None:
+    def __init__(self, model_path: str, context_size: int = 2048) -> None:
         self._model_path = model_path
         self._context_size = context_size
         self._llm: llama_cpp.Llama | None = None
@@ -91,9 +91,9 @@ class LlamaCppInferenceAdapter(InferencePort):
             llm = self._get_llm()
             completion: Any = llm(
                 prompt,
-                max_tokens=128,
+                max_tokens=256,
                 temperature=0.1,
-                stop=[],
+                stop=["\n", "```"],
             )
             raw_text: str = completion["choices"][0]["text"]
             response = parse_response(raw_text)

@@ -21,23 +21,24 @@ TRAIN_SIZE = 2000
 EVAL_SIZE = 200
 
 OBJECT_TYPES = ["bowl", "bed", "toy", "player", "pet"]
+STAT_NAMES = ["hunger", "tiredness", "boredom", "social", "toilet"]
 
-_STAT_TO_ACTION: dict[str, Action] = {
-    "hunger": Action.EAT,
-    "tiredness": Action.SLEEP,
-    "boredom": Action.PLAY,
-    "social": Action.SOCIAL,
-    "toilet": Action.TOILET,
+# Each stat maps to one or more valid actions; tick parity selects between equivalents.
+_STAT_TO_ACTIONS: dict[str, list[Action]] = {
+    "hunger": [Action.EAT, Action.DRINK],
+    "tiredness": [Action.SLEEP],
+    "boredom": [Action.PLAY, Action.FETCH],
+    "social": [Action.SOCIAL, Action.FOLLOW],
+    "toilet": [Action.TOILET],
 }
 
-_ACTION_REQUIRES_TYPE: dict[Action, list[str] | None] = {
-    Action.EAT: ["bowl"],
-    Action.SLEEP: ["bed"],
-    Action.PLAY: ["toy"],
-    Action.SOCIAL: ["player", "pet"],
-    Action.TOILET: None,
-    Action.IDLE: None,
-    Action.EXPLORE: None,
+# Scene object types required to satisfy each stat. None = no object needed.
+_STAT_REQUIRES_TYPES: dict[str, list[str] | None] = {
+    "hunger": ["bowl"],
+    "tiredness": ["bed"],
+    "boredom": ["toy"],
+    "social": ["player", "pet"],
+    "toilet": None,
 }
 
 
@@ -46,30 +47,49 @@ _ACTION_REQUIRES_TYPE: dict[Action, list[str] | None] = {
 # ---------------------------------------------------------------------------
 
 
-def _random_stats(rng: random.Random) -> PetStats:
-    stats = {name: rng.uniform(0.0, 1.0) for name in ["hunger", "tiredness", "boredom", "social", "toilet"]}
-    if rng.random() < 0.70:
-        dominant = rng.choice(list(stats.keys()))
-        stats[dominant] = rng.uniform(0.55, 1.0)
-        if rng.random() < 0.5:
-            for k in stats:
-                if k != dominant:
-                    stats[k] = rng.uniform(0.0, 0.45)
-    return PetStats(**stats)
+def _stats_with_dominant(rng: random.Random, dominant: str) -> PetStats:
+    """One stat is high (0.70–1.0); all others are low (0.0–0.35)."""
+    values = {name: rng.uniform(0.0, 0.35) for name in STAT_NAMES}
+    values[dominant] = rng.uniform(0.70, 1.0)
+    return PetStats(**values)
 
 
-def _random_scene(rng: random.Random) -> SceneData:
-    n_objects = rng.randint(0, 10)
+def _scene_with_required(rng: random.Random, required_types: list[str] | None) -> SceneData:
+    """Scene that guarantees at least one object of a required type is present."""
     objects: list[SceneObject] = []
-    for i in range(n_objects):
-        obj_type = rng.choice(OBJECT_TYPES)
-        distance = round(rng.uniform(1.0, 50.0), 2)
-        objects.append(SceneObject(id=f"obj_{i}", type=obj_type, distance=distance))
+
+    if required_types:
+        req_type = rng.choice(required_types)
+        objects.append(SceneObject(
+            id="obj_0",
+            type=req_type,
+            distance=round(rng.uniform(1.0, 50.0), 1),
+        ))
+
+    for i in range(1, rng.randint(1, 8)):
+        objects.append(SceneObject(
+            id=f"obj_{i}",
+            type=rng.choice(OBJECT_TYPES),
+            distance=round(rng.uniform(1.0, 50.0), 1),
+        ))
+
+    rng.shuffle(objects)
     return SceneData(objects=objects, tick=rng.randint(0, 10_000))
 
 
-def _random_request(rng: random.Random) -> InferenceRequest:
-    return InferenceRequest(scene=_random_scene(rng), pet_stats=_random_stats(rng))
+def _scene_without_required(rng: random.Random, excluded_types: list[str]) -> SceneData:
+    """Scene that intentionally omits excluded types (teaches fallback behaviour)."""
+    allowed = [t for t in OBJECT_TYPES if t not in excluded_types]
+    n = rng.randint(0, 5)
+    objects = [
+        SceneObject(
+            id=f"obj_{i}",
+            type=rng.choice(allowed) if allowed else "bowl",
+            distance=round(rng.uniform(1.0, 50.0), 1),
+        )
+        for i in range(n)
+    ]
+    return SceneData(objects=objects, tick=rng.randint(0, 10_000))
 
 
 # ---------------------------------------------------------------------------
@@ -80,11 +100,12 @@ def _random_request(rng: random.Random) -> InferenceRequest:
 def label(request: InferenceRequest) -> InferenceResponse:
     """Assign a ground-truth action using deterministic rules.
 
-    Priority: dominant stat → preferred action → closest matching object.
-    Falls back to IDLE when no suitable object exists or all stats are low.
+    Priority: dominant stat (≥ 0.5) → preferred action → closest matching object.
+    Tick parity varies between equivalent action pairs (EAT/DRINK, PLAY/FETCH, SOCIAL/FOLLOW).
+    Falls back to IDLE/EXPLORE when no suitable object exists or all stats are low.
     """
     stats = request.pet_stats
-    stat_values = {
+    stat_values: dict[str, float] = {
         "hunger": stats.hunger,
         "tiredness": stats.tiredness,
         "boredom": stats.boredom,
@@ -99,15 +120,17 @@ def label(request: InferenceRequest) -> InferenceResponse:
         action = Action.IDLE if request.scene.tick % 2 == 0 else Action.EXPLORE
         return InferenceResponse(action=action, target_object_id=None, confidence=round(1.0 - dominant_value, 4))
 
-    preferred_action = _STAT_TO_ACTION[dominant_stat]
-    required_types = _ACTION_REQUIRES_TYPE[preferred_action]
+    actions = _STAT_TO_ACTIONS[dominant_stat]
+    preferred_action = actions[request.scene.tick % len(actions)]
+    required_types = _STAT_REQUIRES_TYPES[dominant_stat]
 
     if required_types is None:
         return InferenceResponse(action=preferred_action, target_object_id=None, confidence=round(dominant_value, 4))
 
     candidates = [o for o in request.scene.objects if o.type in required_types]
     if not candidates:
-        return InferenceResponse(action=Action.IDLE, target_object_id=None, confidence=round(dominant_value, 4))
+        action = Action.IDLE if request.scene.tick % 2 == 0 else Action.EXPLORE
+        return InferenceResponse(action=action, target_object_id=None, confidence=round(dominant_value, 4))
 
     closest = min(candidates, key=lambda o: o.distance)
     return InferenceResponse(
@@ -123,7 +146,23 @@ def label(request: InferenceRequest) -> InferenceResponse:
 
 
 def make_example(rng: random.Random) -> dict[str, str]:
-    request = _random_request(rng)
+    """Generate one labelled example.
+
+    75 % of examples: dominant stat is high and the required scene object is present
+    so the correct targeted action is always reachable.
+    25 % of examples: required object is absent to teach IDLE/EXPLORE fallback behaviour.
+    Toilet stat never needs a scene object, so it is always a 'present' example.
+    """
+    dominant = rng.choice(STAT_NAMES)
+    stats = _stats_with_dominant(rng, dominant)
+    required_types = _STAT_REQUIRES_TYPES[dominant]
+
+    if required_types is None or rng.random() < 0.75:
+        scene = _scene_with_required(rng, required_types)
+    else:
+        scene = _scene_without_required(rng, required_types)
+
+    request = InferenceRequest(scene=scene, pet_stats=stats)
     response = label(request)
     return {"prompt": build_prompt(request), "completion": response.model_dump_json()}
 

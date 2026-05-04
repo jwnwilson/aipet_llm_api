@@ -27,7 +27,7 @@ _PARSE_RESPONSE = "infrastructure.inference.parse_response"
 
 
 def _adapter() -> LlamaCppInferenceAdapter:
-    return LlamaCppInferenceAdapter(model_path=str(MODEL_PATH), context_size=512)
+    return LlamaCppInferenceAdapter(model_path=str(MODEL_PATH), context_size=2048)
 
 
 def _request(objects: list[SceneObject] | None = None, **stats) -> InferenceRequest:
@@ -97,3 +97,81 @@ class TestRealInference:
 
         assert adapter._llm is not None
         assert spy.call_count == 2
+
+
+class TestStatPrioritization:
+    """Verify the model picks an action that satisfies the pet's most urgent need.
+
+    A stat value of 0.95 means that need is critical; all others are kept at 0.1
+    so there is no ambiguity about which drive should win.  The scene always
+    contains the object required by the dominant stat plus one unrelated distractor
+    so the model must discriminate rather than default to the first available action.
+
+    These tests are expected to fail before prompt / fine-tuning improvements and
+    serve as a regression baseline once the model is fixed.
+    """
+
+    def test_high_hunger_triggers_eat_or_drink(self):
+        """Pet with hunger=0.95 should choose EAT or DRINK when a bowl is present."""
+        objects = [
+            SceneObject(id="bowl1", type="bowl", distance=2.0),
+            SceneObject(id="toy1", type="toy", distance=3.0),   # distractor
+        ]
+        response = _adapter().infer(
+            _request(objects=objects, hunger=0.95, boredom=0.1, social=0.1, toilet=0.1, tiredness=0.1)
+        )
+        assert response.action in {Action.EAT, Action.DRINK}, (
+            f"Expected EAT or DRINK for hunger=0.95, got {response.action}"
+        )
+
+    def test_high_toilet_triggers_toilet(self):
+        """Pet with toilet=0.95 should choose TOILET regardless of other objects."""
+        objects = [
+            SceneObject(id="toy1", type="toy", distance=2.0),   # distractor
+            SceneObject(id="bed1", type="bed", distance=3.0),   # distractor
+        ]
+        response = _adapter().infer(
+            _request(objects=objects, hunger=0.1, boredom=0.1, social=0.1, toilet=0.95, tiredness=0.1)
+        )
+        assert response.action == Action.TOILET, (
+            f"Expected TOILET for toilet=0.95, got {response.action}"
+        )
+
+    def test_high_tiredness_triggers_sleep(self):
+        """Pet with tiredness=0.95 should choose SLEEP when a bed is present."""
+        objects = [
+            SceneObject(id="bed1", type="bed", distance=2.0),
+            SceneObject(id="bowl1", type="bowl", distance=3.0),  # distractor
+        ]
+        response = _adapter().infer(
+            _request(objects=objects, hunger=0.1, boredom=0.1, social=0.1, toilet=0.1, tiredness=0.95)
+        )
+        assert response.action == Action.SLEEP, (
+            f"Expected SLEEP for tiredness=0.95, got {response.action}"
+        )
+
+    def test_high_social_triggers_social_or_follow(self):
+        """Pet with social=0.95 should choose SOCIAL or FOLLOW when a player is present."""
+        objects = [
+            SceneObject(id="player1", type="player", distance=2.0),
+            SceneObject(id="toy1", type="toy", distance=3.0),    # distractor
+        ]
+        response = _adapter().infer(
+            _request(objects=objects, hunger=0.1, boredom=0.1, social=0.95, toilet=0.1, tiredness=0.1)
+        )
+        assert response.action in {Action.SOCIAL, Action.FOLLOW}, (
+            f"Expected SOCIAL or FOLLOW for social=0.95, got {response.action}"
+        )
+
+    def test_high_boredom_triggers_play_or_fetch(self):
+        """Pet with boredom=0.95 should choose PLAY or FETCH when a toy is present."""
+        objects = [
+            SceneObject(id="toy1", type="toy", distance=2.0),
+            SceneObject(id="bed1", type="bed", distance=3.0),    # distractor
+        ]
+        response = _adapter().infer(
+            _request(objects=objects, hunger=0.1, boredom=0.95, social=0.1, toilet=0.1, tiredness=0.1)
+        )
+        assert response.action in {Action.PLAY, Action.FETCH}, (
+            f"Expected PLAY or FETCH for boredom=0.95, got {response.action}"
+        )

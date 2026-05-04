@@ -196,3 +196,26 @@
 3. Write a `HorizontalPodAutoscaler` targeting CPU utilisation at 70%.
 4. Document cluster setup and `kubectl apply` steps in `README.md`.
 ---
+
+### Task P.3 — Temporal training pipeline
+**Goal:** Orchestrate the full LLM training lifecycle (dataset generation → fine-tuning → evaluation → export) as a Temporal workflow, enabling triggered and scheduled re-training experiments with full visibility and retry semantics.
+**Inputs:** `src/domain/train/`, `src/cli/`, `data/`, `models/`
+**Outputs:** `src/temporal/workflows.py`, `src/temporal/activities.py`, `src/temporal/worker.py`, `src/cli/trigger_training.py`, `docker-compose.yml` (updated with Temporal server)
+**Steps:**
+1. Add `temporalio` as a dependency via `uv add temporalio`.
+2. Write `src/temporal/activities.py` — one `@activity.defn` per pipeline stage, each wrapping the existing domain function:
+   - `generate_dataset_activity(config: DatasetConfig) -> DatasetPaths` — calls `src/domain/train/dataset.py:generate()`
+   - `train_activity(config: TrainConfig) -> CheckpointPath` — calls `src/domain/train/trainer.py:train()`
+   - `evaluate_activity(config: EvalConfig) -> EvalResult` — calls `src/domain/train/evaluate.py:evaluate()`; attaches pass/fail flag (`result.valid_pct >= 0.95`)
+   - `export_activity(checkpoint: CheckpointPath) -> GGUFPath` — calls `src/domain/train/export.py:export()`
+3. Write `src/temporal/workflows.py` — a single `@workflow.defn` class `TrainingPipelineWorkflow`:
+   - Accept `ExperimentConfig` (dataset params, training hyperparameters, experiment name/tag).
+   - Run activities in sequence: generate → train → evaluate → (export only if eval passes).
+   - Emit a `WorkflowFailed` signal and surface `EvalResult` in the workflow result so failed experiments are visible without raising.
+   - Support a `--skip-generate` flag via workflow input to reuse an existing dataset for hyperparameter experiments.
+4. Write `src/temporal/worker.py` — registers all activities and the workflow; reads `TEMPORAL_HOST` env var (default `localhost:7233`) and task queue name `aipet-training`.
+5. Write `src/cli/trigger_training.py` — thin CLI that accepts `--experiment-name`, `--epochs`, `--patience`, `--skip-generate`, connects to Temporal, and starts a `TrainingPipelineWorkflow` execution; prints the workflow ID for tracking.
+6. Update `docker-compose.yml` to add a `temporal` service (using `temporalio/auto-setup` image) and a `temporal-worker` service that runs `python -m src.temporal.worker`; wire `TEMPORAL_HOST=temporal:7233`.
+7. Write unit tests in `tests/unit/test_temporal_activities.py` mocking the domain functions to verify each activity delegates correctly and surfaces errors as `ApplicationError`.
+8. Document experiment triggering and how to inspect workflow history via the Temporal UI (`localhost:8233`) in `README.md`.
+---
