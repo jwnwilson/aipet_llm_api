@@ -22,16 +22,19 @@ src/
   domain/          # pure business logic, no I/O
     models.py      # Pydantic schemas: SceneObject, SceneData, PetStats, InferenceRequest/Response
     actions.py     # Action enum: EAT, DRINK, PLAY, FETCH, SLEEP, SOCIAL, FOLLOW, TOILET, IDLE, EXPLORE
-    ports.py       # abstract InferencePort interface
+    ports.py       # abstract ports: InferencePort, RemoteTrainingPort
     train/         # training domain logic (no CLI, no argparse)
       dataset.py   # generate(), label(), make_example()
       trainer.py   # train(), build_hf_dataset(), load_jsonl()
       evaluate.py  # evaluate(), load_hf_pipeline(), load_llama_cpp_adapter()
       export.py    # export() — HF checkpoint → GGUF
-  infrastructure/  # LLM adapter, implements ports
+  infrastructure/  # local infrastructure adapters, implements ports
     inference.py   # LlamaCppInferenceAdapter
     prompt.py      # build_prompt() + parse_response()
-  api/             # FastAPI adapter
+  adapters/        # 3rd-party / remote adapters, implements ports
+    kaggle_adapter.py   # KaggleTrainingAdapter(RemoteTrainingPort)
+    ssh_adapter.py      # SshTrainingAdapter(RemoteTrainingPort)
+  api/             # FastAPI adapter (primary/driving)
     app.py
     routes.py      # POST /infer, GET /health
   cli/             # thin CLI wrappers (argparse + sys.exit only)
@@ -44,14 +47,15 @@ tests/
   unit/
   integration/
 data/
-  train.jsonl      # 2000 synthetic examples
-  eval.jsonl       # 200 synthetic examples
+  train.jsonl      # 5000 synthetic examples
+  eval.jsonl       # 500 synthetic examples
 models/
   checkpoints/     # HuggingFace fine-tune output
   aipet.gguf       # quantised Q4_K_M export for RPi
 ```
 
 > **Do not use a `scripts/` folder.** CLI entrypoints live in `src/cli/`; training domain logic lives in `src/domain/train/`.
+> **Adapter placement rule:** Ports (interfaces) belong in `src/domain/ports.py`. Local infrastructure (llama.cpp) goes in `src/infrastructure/`. Any adapter that communicates with a 3rd-party service (Kaggle, SSH remotes, external APIs) goes in `src/adapters/`.
 
 ## Domain rules
 
