@@ -264,15 +264,17 @@
 5. Update the `--dry-run` path to set `patience=1` so it can be exercised in a single step.
 ---
 
-### Task P.2 — Kubernetes deployment
+### Task P.2 — Kubernetes deployment ✅
 **Goal:** Deploy the inference service on a multi-node Kubernetes cluster for production scaling beyond a single RPi.
 **Inputs:** `Dockerfile`, `docker-compose.yml`
-**Outputs:** `k8s/deployment.yaml`, `k8s/service.yaml`, `k8s/hpa.yaml`
+**Outputs:** `infra/k8s/deployment.yaml`, `infra/k8s/service.yaml`, `infra/k8s/hpa.yaml`
 **Steps:**
-1. Write a `Deployment` manifest using the ARM64 Docker image; set resource requests/limits appropriate for RPi-class nodes.
+1. Write a `Deployment` manifest using the ECR image (see Task P.5); set resource requests/limits appropriate for RPi-class nodes.
 2. Write a `Service` manifest (ClusterIP) exposing port 8000.
 3. Write a `HorizontalPodAutoscaler` targeting CPU utilisation at 70%.
 4. Document cluster setup and `kubectl apply` steps in `README.md`.
+
+> **Note:** All Kubernetes manifests live under `infra/k8s/`. The ECR repository URL (output of Task P.5) must be substituted into `infra/k8s/deployment.yaml` before applying.
 ---
 
 ### Task P.3 — Temporal training pipeline
@@ -350,3 +352,65 @@ src/
    - `SshTrainingAdapter.submit` calls `rsync` then the remote train command.
    - The updated `train_activity` routes to the correct adapter based on `config.remote_backend`.
 ---
+
+### Task P.5 — ECR + GitHub Actions CI/CD ✅
+**Goal:** Provision an AWS ECR repository and wire up a GitHub Actions pipeline that builds a new ARM64 image on every push to `main` and triggers a rolling update in the Kubernetes cluster — no long-lived AWS credentials stored in GitHub.
+**Inputs:** `Dockerfile`, `infra/k8s/deployment.yaml`
+**Outputs:**
+```
+infra/
+  terraform/
+    main.tf               # ECR repo + lifecycle policy + IAM push policy
+    github_actions.tf     # GitHub OIDC provider + IAM role scoped to main branch
+    variables.tf          # aws_region, repo_name, image_retention_count, github_repo
+    outputs.tf            # repository_url, ecr_push_policy_arn, docker_login_command, github_actions_role_arn
+    versions.tf           # Terraform ≥ 1.5 + AWS provider ~> 5.0
+.github/
+  workflows/
+    deploy.yml            # build → push to ECR → kubectl rollout on push to main
+```
+
+**Steps:**
+
+**Terraform (ECR + IAM):**
+1. In `infra/terraform/versions.tf`: pin Terraform `>= 1.5` and `hashicorp/aws ~> 5.0`.
+2. In `infra/terraform/variables.tf`: declare `aws_region` (default `us-east-1`), `repo_name` (default `aipet-llm`), `image_retention_count` (default `10`), and `github_repo` (no default — caller must set to `owner/repo-name`).
+3. In `infra/terraform/main.tf`:
+   a. Create `aws_ecr_repository` with `scan_on_push = true`.
+   b. Attach a lifecycle policy: retain last `var.image_retention_count` tagged images; expire untagged images after 7 days.
+   c. Create `aws_iam_policy` granting `ecr:GetAuthorizationToken` globally plus the five push actions scoped to the repository ARN.
+4. In `infra/terraform/github_actions.tf`:
+   a. Create `aws_iam_openid_connect_provider` for `https://token.actions.githubusercontent.com` with audience `sts.amazonaws.com`.
+   b. Create `aws_iam_role` with a trust policy that allows `sts:AssumeRoleWithWebIdentity` only for tokens whose `sub` matches `repo:<var.github_repo>:ref:refs/heads/main` — this prevents PRs from assuming the role.
+   c. Attach the ECR push policy to the role.
+5. In `infra/terraform/outputs.tf`: expose `repository_url`, `ecr_push_policy_arn`, `docker_login_command`, and `github_actions_role_arn`.
+
+**GitHub Actions (`.github/workflows/deploy.yml`):**
+6. Trigger: `push` to `main`. Permissions: `id-token: write` (OIDC), `contents: read`.
+7. Steps:
+   a. `actions/checkout@v4`
+   b. `aws-actions/configure-aws-credentials@v4` — assumes the OIDC role via `secrets.AWS_ROLE_ARN` (no static keys).
+   c. `aws-actions/amazon-ecr-login@v2` — exchanges the AWS session for a Docker registry token.
+   d. `docker/setup-buildx-action@v3` + `docker/build-push-action@v5` — builds `linux/arm64`, pushes two tags: `:<github.sha>` (immutable, for audit) and `:latest`. Uses GitHub Actions cache for fast subsequent builds.
+   e. `kubectl set image deployment/aipet-llm aipet-llm=<ECR_URL>:<sha>` then `kubectl rollout status --timeout=300s`. Kubeconfig is read from `secrets.KUBECONFIG` (base64-encoded). For EKS, replace with `aws eks update-kubeconfig`.
+
+**First-time setup (one-off, run locally):**
+```bash
+# 1. Provision ECR + OIDC role
+cd infra/terraform
+terraform init
+terraform apply -var="github_repo=myorg/aipet-llm"
+
+# 2. Set GitHub repository secrets
+gh secret set AWS_ROLE_ARN --body "$(terraform output -raw github_actions_role_arn)"
+gh secret set KUBECONFIG   --body "$(cat ~/.kube/config | base64)"
+
+# 3. Apply k8s manifests (first deploy, set real ECR URL)
+REPO=$(terraform output -raw repository_url)
+sed -i "s|<ECR_REPOSITORY_URL>|$REPO|g" ../k8s/deployment.yaml
+kubectl apply -f ../k8s/
+
+# All future deploys are automatic on push to main.
+```
+
+8. Add `infra/terraform/.terraform/`, `infra/terraform/*.tfstate*`, and `infra/terraform/.terraform.lock.hcl` to `.gitignore`.

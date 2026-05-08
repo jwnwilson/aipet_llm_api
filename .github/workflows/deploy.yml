@@ -1,0 +1,61 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+
+# OIDC requires id-token:write; contents:read is the minimum for checkout.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: aipet-llm
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Set this secret to: terraform -chdir=infra/terraform output -raw github_actions_role_arn
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ARM64 image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          # GitHub Actions cache keeps ARM64 cross-compilation fast on subsequent runs.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to Kubernetes
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          # KUBECONFIG secret: base64-encoded contents of ~/.kube/config for your cluster.
+          # For EKS clusters, replace this block with:
+          #   aws eks update-kubeconfig --name <cluster-name> --region $AWS_REGION
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+
+          kubectl set image deployment/aipet-llm aipet-llm=$IMAGE
+          kubectl rollout status deployment/aipet-llm --timeout=300s

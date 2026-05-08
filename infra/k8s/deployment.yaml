@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aipet-llm
+  labels:
+    app: aipet-llm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aipet-llm
+  template:
+    metadata:
+      labels:
+        app: aipet-llm
+    spec:
+      containers:
+        - name: aipet-llm
+          # Replace with output of: terraform -chdir=infra/terraform output -raw repository_url
+          image: <ECR_REPOSITORY_URL>:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MODEL_PATH
+              value: /app/models/aipet.gguf
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
