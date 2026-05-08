@@ -77,12 +77,19 @@ class LlamaCppInferenceAdapter(InferencePort):
         return self._llm
 
     def _ensure_target(self, response: InferenceResponse, request: InferenceRequest) -> InferenceResponse:
-        """If action requires a target but model omitted it, pick the closest valid scene object."""
-        if response.target_object_id is not None:
-            return response
+        """Guarantee the response has a valid target for actions that require one.
+
+        If the model omitted the target or returned one with the wrong object type,
+        replace it with the closest scene object whose type satisfies the action.
+        """
         required_types = _ACTION_TARGET_TYPES.get(response.action)
         if not required_types:
             return response
+
+        valid_ids = {o.id for o in request.scene.objects if o.type in required_types}
+        if response.target_object_id in valid_ids:
+            return response
+
         candidates = [o for o in request.scene.objects if o.type in required_types]
         if not candidates:
             return response

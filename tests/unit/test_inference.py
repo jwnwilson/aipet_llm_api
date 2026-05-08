@@ -245,3 +245,32 @@ class TestEnsureTarget:
         result = self._ensure(response, far_player, close_pet)
 
         assert result.target_object_id == "pet_close"
+
+    def test_replaces_invalid_target_type_with_closest_valid(self):
+        toy = SceneObject(id="toy_1", type="toy", distance=1.0)
+        far_bowl = SceneObject(id="bowl_far", type="bowl", distance=20.0)
+        close_bowl = SceneObject(id="bowl_close", type="bowl", distance=5.0)
+        # model hallucinated a toy id for an EAT action
+        response = InferenceResponse(action=Action.EAT, target_object_id="toy_1")
+
+        result = self._ensure(response, toy, far_bowl, close_bowl)
+
+        assert result.target_object_id == "bowl_close"
+
+    def test_replaces_nonexistent_target_id_with_closest_valid(self):
+        bowl = SceneObject(id="bowl_real", type="bowl", distance=8.0)
+        # model returned an id that does not exist in the scene
+        response = InferenceResponse(action=Action.EAT, target_object_id="bowl_ghost")
+
+        result = self._ensure(response, bowl)
+
+        assert result.target_object_id == "bowl_real"
+
+    def test_preserves_confidence_when_replacing_invalid_target(self):
+        bowl = SceneObject(id="bowl_1", type="bowl", distance=5.0)
+        response = InferenceResponse(action=Action.EAT, target_object_id="bad_id", confidence=0.85)
+
+        result = self._ensure(response, bowl)
+
+        assert result.target_object_id == "bowl_1"
+        assert result.confidence == 0.85
