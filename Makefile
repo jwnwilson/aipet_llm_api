@@ -7,7 +7,11 @@ OUTPUT_DIR  ?= models/checkpoints
 IMAGE       ?= aipet-llm
 RPI_HOST    ?= raspberrypi.local
 
-.PHONY: serve test test-unit test-integration test-cli data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy help
+EXPERIMENT   ?= experiment-01
+EPOCHS       ?= 5
+PATIENCE     ?= 3
+
+.PHONY: serve test test-unit test-integration test-cli data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -79,6 +83,22 @@ docker-export: ## Save the ARM64 image as a tarball for transfer to the RPi
 docker-deploy: docker-export ## Build, export, and copy the image to the RPi (RPI_HOST=... to override)
 	scp $(IMAGE).tar.gz pi@$(RPI_HOST):~/
 	ssh pi@$(RPI_HOST) "docker load -i ~/$(IMAGE).tar.gz && docker compose up -d"
+
+temporal-up: ## Start Temporal server + web UI (localhost:8233)
+	docker compose up temporal -d
+
+temporal-down: ## Stop Temporal server and worker
+	docker compose down temporal temporal-worker
+
+temporal-worker: ## Run the Temporal activity worker locally  (requires Temporal server)
+	PYTHONPATH=src uv run python -m src.temporal.worker
+
+temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS / PATIENCE / SKIP_GENERATE=1)
+	PYTHONPATH=src uv run python src/cli/trigger_training.py \
+		--experiment-name $(EXPERIMENT) \
+		--epochs $(EPOCHS) \
+		--patience $(PATIENCE) \
+		$(if $(SKIP_GENERATE),--skip-generate)
 
 request: ## Send a test /infer request to the running API server  (HOST/PORT to override)
 	curl -s -X POST http://$(HOST):$(PORT)/infer \

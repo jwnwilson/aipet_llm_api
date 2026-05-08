@@ -35,7 +35,7 @@ except ModuleNotFoundError:
     _DATASETS_AVAILABLE = False
 
 MAX_LENGTH = 512
-DEFAULT_MODEL = "HuggingFaceTB/SmolLM-360M"
+DEFAULT_MODEL = "HuggingFaceTB/SmolLM2-360M"
 DEFAULT_TRAIN_DATA = "data/train.jsonl"
 DEFAULT_EVAL_DATA = "data/eval.jsonl"
 DEFAULT_OUTPUT_DIR = "models/checkpoints"
