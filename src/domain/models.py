@@ -32,8 +32,19 @@ class InferenceRequest(BaseModel):
 
 
 class InferenceResponse(BaseModel):
+    stat: str | None = None
     action: Action
     target_object_id: str | None = None
     confidence: float | None = None
+
+
+class RemoteTrainConfig(BaseModel):
+    model: str
+    train_data: str
+    eval_data: str
+    epochs: int
+    patience: int
+    warmup_ratio: float
+    experiment_name: str
 
 

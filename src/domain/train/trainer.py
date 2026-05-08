@@ -93,12 +93,18 @@ def build_hf_dataset(records: list[dict], tokenizer, max_length: int = MAX_LENGT
         attention_mask: list[int] = full_enc["attention_mask"]
 
         prompt_enc = tokenizer(prompt, max_length=max_length, truncation=True, padding=False, add_special_tokens=False, return_tensors=None)
-        prompt_len: int = len(prompt_enc["input_ids"])
+        # +1 accounts for the BOS token prepended by the full tokenization but absent
+        # in the prompt-only pass (add_special_tokens=False), so the label boundary
+        # correctly lands at the first completion token rather than the last prompt token.
+        prompt_len: int = len(prompt_enc["input_ids"]) + 1
 
         labels: list[int] = [-100] * prompt_len + input_ids[prompt_len:]
         labels = labels[: len(input_ids)]
         if len(labels) < len(input_ids):
             labels = labels + [-100] * (len(input_ids) - len(labels))
+
+        if all(l == -100 for l in labels):
+            continue  # skip: fully-masked labels would produce NaN loss
 
         all_input_ids.append(input_ids)
         all_attention_masks.append(attention_mask)
@@ -241,8 +247,8 @@ def train(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Load in float16 on MPS to halve peak VRAM; CPU and CUDA use their normal defaults.
-    load_dtype = torch.float16 if use_mps else None
+    # MPS has hardware optimisations; float16 adds instability rather than saving memory.
+    load_dtype = None
     print(f"Loading model from: {model}" + (f"  dtype=float16" if use_mps else ""))
     hf_model = AutoModelForCausalLM.from_pretrained(
         model, trust_remote_code=True, torch_dtype=load_dtype

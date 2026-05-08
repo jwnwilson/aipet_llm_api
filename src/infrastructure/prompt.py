@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 
 from domain.actions import Action
@@ -36,16 +37,23 @@ def _available_actions(request: InferenceRequest) -> list[Action]:
     return available
 
 
-def build_prompt(request: InferenceRequest) -> str:
+_GUIDE = (
+    "Guide: hunger→EAT/DRINK(bowl) | tiredness→SLEEP(bed) | "
+    "boredom→PLAY/FETCH(toy) | social→SOCIAL/FOLLOW(player,pet) | toilet→TOILET"
+)
+
+
+def build_prompt(request: InferenceRequest, rng: random.Random | None = None) -> str:
     """Build a compact prompt string for the LLM from an InferenceRequest.
 
     Stats are sorted highest-first so the dominant need is immediately visible.
-    The rule is stated explicitly so small models don't need to infer it.
-    Scene objects are sorted nearest-first so the closest valid target is easy to read.
+    The rule and stat→action guide are stated explicitly so small models don't
+    need to infer them. Scene objects are sorted nearest-first so the closest
+    valid target is easy to read. Available actions are shuffled to prevent the
+    model from learning a position bias (e.g. always picking the first action).
     """
     stats = request.pet_stats
 
-    # Sort stats high → low so the dominant stat is always first.
     stat_dict = {
         "hunger": stats.hunger,
         "boredom": stats.boredom,
@@ -60,7 +68,6 @@ def build_prompt(request: InferenceRequest) -> str:
     ]
     stats_str = ", ".join(stats_parts)
 
-    # Sort objects nearest-first so the closest target is always at the front.
     sorted_objects = sorted(request.scene.objects, key=lambda o: o.distance)
     if sorted_objects:
         obj_parts = [f"{o.type}(id={o.id},dist={o.distance:.1f})" for o in sorted_objects]
@@ -69,6 +76,10 @@ def build_prompt(request: InferenceRequest) -> str:
         scene_str = "empty"
 
     actions = _available_actions(request)
+    if rng is not None:
+        rng.shuffle(actions)
+    else:
+        random.shuffle(actions)
     actions_str = ", ".join(a.value for a in actions)
 
     prompt = (
@@ -76,6 +87,7 @@ def build_prompt(request: InferenceRequest) -> str:
         f"Stats (highest first): {stats_str}\n"
         f"Rule: choose the action that satisfies the highest stat. "
         f"If a target object is required, select the closest one.\n"
+        f"{_GUIDE}\n"
         f"Scene (nearest first): {scene_str}\n"
         f"Available actions: {actions_str}\n"
         f"Respond with JSON only."

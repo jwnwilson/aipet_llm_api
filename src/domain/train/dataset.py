@@ -201,7 +201,10 @@ def make_example(rng: random.Random, dominant: str | None = None) -> dict[str, s
 
     request = InferenceRequest(scene=scene, pet_stats=stats)
     response = label(request, rng=rng)
-    return {"prompt": build_prompt(request), "completion": response.model_dump_json(exclude_none=True)}
+    # Build completion with stat first so the model reasons about the dominant
+    # stat before committing to an action (chain-of-thought lite).
+    comp = {"stat": dominant, **json.loads(response.model_dump_json(exclude_none=True))}
+    return {"prompt": build_prompt(request, rng=rng), "completion": json.dumps(comp)}
 
 
 def generate_examples(n: int, rng: random.Random) -> list[dict[str, str]]:

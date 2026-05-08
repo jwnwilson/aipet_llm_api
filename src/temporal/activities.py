@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import sys
 from contextlib import redirect_stdout
@@ -12,7 +13,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.train.dataset import EVAL_SIZE, SEED, TRAIN_SIZE
-from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE
+from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,10 @@ class TrainConfig:
     output_dir: str = DEFAULT_OUTPUT_DIR
     epochs: int = DEFAULT_EPOCHS
     patience: int = DEFAULT_PATIENCE
+    warmup_ratio: float = DEFAULT_WARMUP_RATIO
+    # Remote backend: "" or "local" → run locally; "kaggle" or "ssh" → remote.
+    remote_backend: str = ""
+    experiment_name: str = ""
 
 
 @dataclass
@@ -96,6 +101,17 @@ async def generate_dataset_activity(config: DatasetConfig) -> DatasetPaths:
 
 @activity.defn
 async def train_activity(config: TrainConfig) -> CheckpointPath:
+    backend = config.remote_backend or "local"
+
+    if backend == "local":
+        return await _train_local(config)
+    elif backend in ("kaggle", "ssh"):
+        return await _train_remote(config, backend)
+    else:
+        raise ApplicationError(f"Unknown remote_backend: {config.remote_backend!r}")
+
+
+async def _train_local(config: TrainConfig) -> CheckpointPath:
     from domain.train.trainer import train
 
     try:
@@ -106,6 +122,7 @@ async def train_activity(config: TrainConfig) -> CheckpointPath:
             output_dir=config.output_dir,
             epochs=config.epochs,
             patience=config.patience,
+            warmup_ratio=config.warmup_ratio,
         )
     except Exception as exc:
         raise ApplicationError(f"train failed: {exc}") from exc
@@ -113,9 +130,61 @@ async def train_activity(config: TrainConfig) -> CheckpointPath:
     return CheckpointPath(path=config.output_dir)
 
 
+async def _train_remote(config: TrainConfig, backend: str) -> CheckpointPath:
+    from domain.models import RemoteTrainConfig
+
+    remote_config = RemoteTrainConfig(
+        model=config.model,
+        train_data=config.train_data,
+        eval_data=config.eval_data,
+        epochs=config.epochs,
+        patience=config.patience,
+        warmup_ratio=config.warmup_ratio,
+        experiment_name=config.experiment_name or "aipet",
+    )
+
+    if backend == "kaggle":
+        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        adapter = KaggleTrainingAdapter()
+    else:
+        from adapters.ssh_adapter import SshTrainingAdapter
+        adapter = SshTrainingAdapter()
+
+    try:
+        run_id = adapter.submit(remote_config)
+    except Exception as exc:
+        raise ApplicationError(f"Remote submit failed ({backend}): {exc}") from exc
+
+    activity.logger.info("Remote job submitted: backend=%s run_id=%s", backend, run_id)
+
+    while True:
+        try:
+            status = adapter.status(run_id)
+        except Exception as exc:
+            raise ApplicationError(f"Remote status check failed ({backend}): {exc}") from exc
+
+        activity.heartbeat(status)
+        activity.logger.info("Remote status: backend=%s run_id=%s status=%s", backend, run_id, status)
+
+        if status == "done":
+            dest = Path(config.output_dir)
+            try:
+                checkpoint_path = adapter.download(run_id, dest)
+            except Exception as exc:
+                raise ApplicationError(f"Remote download failed ({backend}): {exc}") from exc
+            return CheckpointPath(path=checkpoint_path)
+
+        if status == "failed":
+            raise ApplicationError(
+                f"Remote training failed (backend={backend}, run_id={run_id})"
+            )
+
+        await asyncio.sleep(60)
+
+
 @activity.defn
 async def evaluate_activity(config: EvalConfig) -> EvalResult:
-    from domain.train.evaluate import PASS_THRESHOLD, evaluate, infer_hf, load_hf_pipeline
+    from domain.train.evaluate import evaluate, infer_hf, load_hf_pipeline
 
     try:
         pipe = load_hf_pipeline(config.checkpoint)

@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 # Each optional field appears AT MOST ONCE, preventing the model from looping on
 # repeated keys (e.g. ,"confidence":0.90,"confidence":0.90,...) until max_tokens.
 _RESPONSE_GBNF = (
-    'root ::= "{" ws "\\"action\\"" ws ":" ws action-val target-part confidence-part ws "}"\n'
+    'root ::= "{" ws "\\"stat\\"" ws ":" ws stat-val ws "," ws "\\"action\\"" ws ":" ws action-val target-part confidence-part ws "}"\n'
     "ws ::= [ \\t\\n]*\n"
+    'stat-val ::= "\\"hunger\\"" | "\\"tiredness\\"" | "\\"boredom\\"" | "\\"social\\"" | "\\"toilet\\""\n'
     'action-val ::= "\\"EAT\\"" | "\\"DRINK\\"" | "\\"PLAY\\"" | "\\"FETCH\\"" | "\\"SLEEP\\"" | "\\"SOCIAL\\"" | "\\"FOLLOW\\"" | "\\"TOILET\\"" | "\\"IDLE\\"" | "\\"EXPLORE\\""\n'
     'target-part ::= (ws "," ws "\\"target_object_id\\"" ws ":" ws (id-str | "null"))?\n'
     'confidence-part ::= (ws "," ws "\\"confidence\\"" ws ":" ws number)?\n'

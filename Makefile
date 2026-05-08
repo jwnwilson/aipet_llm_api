@@ -88,7 +88,7 @@ temporal-up: ## Start Temporal server + web UI (localhost:8233)
 	docker compose up temporal -d
 
 temporal-down: ## Stop Temporal server and worker
-	docker compose down temporal temporal-worker
+	docker compose down temporal temporal-ui temporal-db temporal-worker
 
 temporal-worker: ## Run the Temporal activity worker locally  (requires Temporal server)
 	PYTHONPATH=src uv run python -m src.temporal.worker

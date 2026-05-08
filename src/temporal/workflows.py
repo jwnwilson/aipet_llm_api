@@ -10,7 +10,7 @@ from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from domain.train.dataset import EVAL_SIZE, SEED, TRAIN_SIZE
-    from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE
+    from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
     from temporal.activities import (
         CheckpointPath,
         DatasetConfig,
@@ -31,6 +31,7 @@ class ExperimentConfig:
     experiment_name: str = ""
     epochs: int = DEFAULT_EPOCHS
     patience: int = DEFAULT_PATIENCE
+    warmup_ratio: float = DEFAULT_WARMUP_RATIO
     skip_generate: bool = False
     data_dir: str = "data"
     output_dir: str = DEFAULT_OUTPUT_DIR
@@ -38,6 +39,8 @@ class ExperimentConfig:
     train_size: int = TRAIN_SIZE
     eval_size: int = EVAL_SIZE
     seed: int = SEED
+    # "local", "kaggle", or "ssh" — controls where fine-tuning runs.
+    remote_backend: str = ""
 
 
 @dataclass
@@ -96,6 +99,9 @@ class TrainingPipelineWorkflow:
                 output_dir=config.output_dir,
                 epochs=config.epochs,
                 patience=config.patience,
+                warmup_ratio=config.warmup_ratio,
+                remote_backend=config.remote_backend,
+                experiment_name=config.experiment_name,
             ),
             start_to_close_timeout=timedelta(hours=6),
             retry_policy=_NO_RETRY,
