@@ -26,10 +26,11 @@ htmlcov/
 .env.*
 
 # Models (large binaries — store separately)
-models/aipet.gguf
-models/checkpoints/
+models/*
+models/*
 
 # Data (generated — not source-controlled)
-data/train.jsonl
-data/eval.json
+data/*
+
+# 3rd Party
 llama.cpp/

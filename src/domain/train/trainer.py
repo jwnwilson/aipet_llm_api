@@ -35,7 +35,7 @@ except ModuleNotFoundError:
     _DATASETS_AVAILABLE = False
 
 MAX_LENGTH = 512
-DEFAULT_MODEL = "HuggingFaceTB/SmolLM2-1.7B"
+DEFAULT_MODEL = "HuggingFaceTB/SmolLM-360M"
 DEFAULT_TRAIN_DATA = "data/train.jsonl"
 DEFAULT_EVAL_DATA = "data/eval.jsonl"
 DEFAULT_OUTPUT_DIR = "models/checkpoints"
@@ -225,8 +225,9 @@ def train(
         and hasattr(torch.backends, "mps")
         and torch.backends.mps.is_available()
     )
-    if no_mps and use_mps:
-        os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    # On MPS, set the fallback env var so ops unsupported by Metal fall back to CPU.
+    if use_mps:
+        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
     default_batch = 4 if use_cuda else 1
     effective_batch = batch_size if batch_size is not None else default_batch
@@ -240,8 +241,16 @@ def train(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    print(f"Loading model from: {model}")
-    hf_model = AutoModelForCausalLM.from_pretrained(model, trust_remote_code=True)
+    # Load in float16 on MPS to halve peak VRAM; CPU and CUDA use their normal defaults.
+    load_dtype = torch.float16 if use_mps else None
+    print(f"Loading model from: {model}" + (f"  dtype=float16" if use_mps else ""))
+    hf_model = AutoModelForCausalLM.from_pretrained(
+        model, trust_remote_code=True, torch_dtype=load_dtype
+    )
+    # Gradient checkpointing trades compute for memory — on by default for non-CUDA
+    # devices where RAM is the binding constraint.
+    if not use_cuda:
+        hf_model.gradient_checkpointing_enable()
 
     print(f"Loading training data from: {train_data}")
     train_records = load_jsonl(train_data)
@@ -285,7 +294,7 @@ def train(
             lr_scheduler_type="cosine",
             weight_decay=0.01,
             fp16=use_cuda,
-            use_cpu=no_mps and not use_cuda,
+            use_cpu=no_mps and not use_cuda and not use_mps,
         )
 
     data_collator = DataCollatorForSeq2Seq(

@@ -18,7 +18,52 @@ make request                      # sends a test /infer request
 make help
 ```
 
-## Training pipeline
+## Temporal training pipeline (orchestrated)
+
+Run the full dataset → train → evaluate → export lifecycle as a durable Temporal workflow.
+
+### Start infrastructure
+
+```bash
+docker compose up temporal -d       # Temporal server + web UI on :8233
+docker compose up temporal-worker   # activity worker (connects to Temporal)
+```
+
+### Trigger an experiment
+
+```bash
+# Generate a fresh dataset, train for 10 epochs, export GGUF if eval passes
+python -m src.cli.trigger_training --experiment-name run-001 --epochs 10 --patience 3
+
+# Reuse the existing dataset (hyperparameter sweep — skips generate step)
+python -m src.cli.trigger_training --experiment-name sweep-lr --epochs 5 --skip-generate
+```
+
+The CLI prints the workflow ID and a direct link to the Temporal Web UI:
+
+```
+Workflow started
+  ID     : training-run-001-a1b2c3d4
+  Run ID : <uuid>
+  UI     : http://localhost:8233/namespaces/default/workflows/training-run-001-a1b2c3d4
+```
+
+### Inspect workflow history
+
+Open http://localhost:8233 in your browser. Each pipeline stage appears as a separate activity event with its inputs, outputs, and retry history. A failed evaluation is surfaced in the workflow result (`passed=False`) without terminating with an exception — the GGUF export is simply skipped.
+
+### Pipeline stages
+
+| Stage | Activity | Timeout | Retries |
+|-------|----------|---------|---------|
+| Generate dataset | `generate_dataset_activity` | 30 min | 3 |
+| Fine-tune | `train_activity` | 6 h | 1 |
+| Evaluate | `evaluate_activity` | 30 min | 3 |
+| Export GGUF | `export_activity` | 1 h | 1 (only if eval passes) |
+
+---
+
+## Training pipeline (manual)
 
 ```bash
 make data                         # generate 2000 train + 200 eval examples

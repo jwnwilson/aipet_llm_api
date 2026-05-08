@@ -15,15 +15,14 @@ from infrastructure.prompt import build_prompt, parse_response
 logger = logging.getLogger(__name__)
 
 # GBNF grammar that forces the sampler to emit a valid InferenceResponse JSON.
-# "action" is always first; target_object_id and confidence are optional.
+# Each optional field appears AT MOST ONCE, preventing the model from looping on
+# repeated keys (e.g. ,"confidence":0.90,"confidence":0.90,...) until max_tokens.
 _RESPONSE_GBNF = (
-    'root ::= "{" ws "\\"action\\"" ws ":" ws action-val trailing ws "}"\n'
+    'root ::= "{" ws "\\"action\\"" ws ":" ws action-val target-part confidence-part ws "}"\n'
     "ws ::= [ \\t\\n]*\n"
     'action-val ::= "\\"EAT\\"" | "\\"DRINK\\"" | "\\"PLAY\\"" | "\\"FETCH\\"" | "\\"SLEEP\\"" | "\\"SOCIAL\\"" | "\\"FOLLOW\\"" | "\\"TOILET\\"" | "\\"IDLE\\"" | "\\"EXPLORE\\""\n'
-    "trailing ::= (ws \",\" ws field)*\n"
-    "field ::= target-field | confidence-field\n"
-    'target-field ::= "\\"target_object_id\\"" ws ":" ws (id-str | "null")\n'
-    'confidence-field ::= "\\"confidence\\"" ws ":" ws number\n'
+    'target-part ::= (ws "," ws "\\"target_object_id\\"" ws ":" ws (id-str | "null"))?\n'
+    'confidence-part ::= (ws "," ws "\\"confidence\\"" ws ":" ws number)?\n'
     'id-str ::= "\\"" [-a-zA-Z0-9_]* "\\""\n'
     'number ::= [0-9]+ ("." [0-9]+)?\n'
 )

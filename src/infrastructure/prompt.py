@@ -86,19 +86,33 @@ def build_prompt(request: InferenceRequest) -> str:
 def parse_response(raw: str) -> InferenceResponse:
     """Extract and validate an InferenceResponse JSON object from raw LLM output.
 
-    Raises ValueError if no valid JSON block is found or validation fails.
+    Primary path: find and parse the first complete JSON object.
+    Fallback path: if the JSON was truncated (e.g. model hit max_tokens before
+    closing '}'), extract "action" and "target_object_id" via regex so a valid
+    response can still be returned instead of falling back to IDLE.
+
+    Raises ValueError if neither path succeeds.
     """
-    # Try to find a JSON object (possibly surrounded by extra text).
+    # Primary: find a complete JSON object (opening and closing braces present).
     match = re.search(r"\{[^{}]*\}", raw, re.DOTALL)
-    if not match:
+    if match:
+        try:
+            data = json.loads(match.group())
+            return InferenceResponse.model_validate(data)
+        except (json.JSONDecodeError, Exception) as exc:
+            raise ValueError(f"JSON found but invalid: {exc}") from exc
+
+    # Fallback: truncated output — extract fields individually.
+    action_match = re.search(r'"action"\s*:\s*"([A-Z]+)"', raw)
+    if not action_match:
         raise ValueError(f"No JSON object found in response: {raw!r}")
 
-    try:
-        data = json.loads(match.group())
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON in response: {exc}") from exc
+    data: dict = {"action": action_match.group(1)}
+    target_match = re.search(r'"target_object_id"\s*:\s*"([^"]+)"', raw)
+    if target_match:
+        data["target_object_id"] = target_match.group(1)
 
     try:
         return InferenceResponse.model_validate(data)
     except Exception as exc:
-        raise ValueError(f"Response does not match InferenceResponse schema: {exc}") from exc
+        raise ValueError(f"Partial response extraction failed: {exc}") from exc

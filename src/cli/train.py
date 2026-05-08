@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> None:
         "--model", "--base-model",
         default=DEFAULT_MODEL,
         dest="model",
-        help="HuggingFace model ID or local path (e.g. HuggingFaceTB/SmolLM-360M)",
+        help="HuggingFace model ID or local path. Use SmolLM2-1.7B for higher quality (needs ≥8 GB RAM).",
     )
     parser.add_argument("--train-data", default=DEFAULT_TRAIN_DATA, dest="train_data")
     parser.add_argument("--eval-data", default=DEFAULT_EVAL_DATA, dest="eval_data")

@@ -256,3 +256,21 @@ class TestParseResponse:
         raw = '{"action": "DANCE"}'  # not a valid Action enum value
         with pytest.raises(ValueError):
             parse_response(raw)
+
+    # Truncated-response fallback (grammar loop hit max_tokens before closing })
+    def test_truncated_json_with_repeated_fields_recovers_action(self):
+        raw = '{"action":"EAT","target_object_id":"bowl_1","confidence":0.90,"confidence":0.90,"confidence":0.9'
+        result = parse_response(raw)
+        assert result.action == Action.EAT
+        assert result.target_object_id == "bowl_1"
+
+    def test_truncated_json_without_target_recovers_action(self):
+        raw = '{"action":"SLEEP","confidence":0.85,"confidence":0.85,"confidence":0.85,"confidence":0.8'
+        result = parse_response(raw)
+        assert result.action == Action.SLEEP
+        assert result.target_object_id is None
+
+    def test_truncated_json_with_no_action_raises(self):
+        raw = '{"target_object_id":"bowl","confidence":0.90,"confidence":0.90,"confidence":0.9'
+        with pytest.raises(ValueError):
+            parse_response(raw)

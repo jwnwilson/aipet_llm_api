@@ -297,3 +297,56 @@
 7. Write unit tests in `tests/unit/test_temporal_activities.py` mocking the domain functions to verify each activity delegates correctly and surfaces errors as `ApplicationError`.
 8. Document experiment triggering and how to inspect workflow history via the Temporal UI (`localhost:8233`) in `README.md`.
 ---
+
+### Task P.4 — Remote GPU training via Kaggle / Google Colab
+**Goal:** Allow the Temporal `train_activity` to offload the fine-tuning step to a free or cheap cloud GPU (Kaggle T4, Google Colab A100, or any SSH-accessible VM) while keeping the rest of the pipeline (dataset generation, evaluation, export) running locally. This unblocks training larger models (SmolLM2-1.7B, Phi-3.5-mini 3.8B) that exceed the local machine's GPU memory.
+
+**Architecture note:** Following hexagonal architecture — the port (interface) lives in the domain layer; concrete adapters that communicate with 3rd-party systems live in `src/adapters/`. No 3rd-party I/O belongs in `src/domain/` or `src/temporal/`.
+
+```
+src/
+  domain/
+    ports.py                  ← add RemoteTrainingPort here (pure interface, no I/O)
+  adapters/                   ← NEW — all 3rd-party communication adapters
+    kaggle_adapter.py         ← KaggleTrainingAdapter(RemoteTrainingPort)
+    ssh_adapter.py            ← SshTrainingAdapter(RemoteTrainingPort)
+    notebook_template.ipynb   ← parameterised Kaggle kernel template
+```
+
+**Inputs:** `src/temporal/activities.py`, `src/domain/train/trainer.py`, `src/domain/train/dataset.py`, `src/domain/ports.py`
+**Outputs:** updated `src/domain/ports.py`, `src/adapters/kaggle_adapter.py`, `src/adapters/ssh_adapter.py`, `src/adapters/notebook_template.ipynb`, updated `src/temporal/activities.py`, `tests/unit/test_remote_adapters.py`
+**Steps:**
+1. Add `RemoteTrainingPort` to `src/domain/ports.py` — abstract base class with three methods:
+   - `submit(config: RemoteTrainConfig) -> str` — uploads data + code, starts the remote job; returns an opaque `run_id`.
+   - `status(run_id: str) -> Literal["pending", "running", "done", "failed"]` — polls job state without blocking.
+   - `download(run_id: str, dest: Path) -> CheckpointPath` — fetches the trained checkpoint into a local directory once done.
+   - `RemoteTrainConfig` Pydantic model (in `src/domain/models.py`): `model`, `train_data`, `eval_data`, `epochs`, `patience`, `warmup_ratio`, `experiment_name`.
+2. Create `src/adapters/__init__.py` — empty, marks the package. This folder contains only adapters that implement domain ports by calling external systems.
+3. Implement `src/adapters/kaggle_adapter.py` — `KaggleTrainingAdapter(RemoteTrainingPort)`:
+   - **`submit`**: (a) push training data as a Kaggle Dataset (`kaggle datasets version -p data/ -m "<experiment_name>"`); (b) render `notebook_template.ipynb` with the training config; (c) create/update the kernel metadata JSON (`kernel-metadata.json`) pointing at the dataset; (d) push via `kaggle kernels push -p <kernel_dir>`; return the kernel slug as `run_id`.
+   - **`status`**: call `kaggle kernels status <slug>` and map the Kaggle status string to the canonical enum.
+   - **`download`**: call `kaggle kernels output <slug> -p <dest>` to pull the saved checkpoint archive; unpack and return the checkpoint path.
+   - Reads `KAGGLE_USERNAME` and `KAGGLE_KEY` from env vars (Kaggle API credentials).
+4. Implement `src/adapters/ssh_adapter.py` — `SshTrainingAdapter(RemoteTrainingPort)`:
+   - **`submit`**: `rsync` the `src/` and `data/` directories to the remote host; run `uv run python -m src.cli.train <flags>` in a `screen`/`tmux` session; return a session ID as `run_id`.
+   - **`status`**: SSH and check whether the session is still running and whether `models/checkpoints/` has been updated.
+   - **`download`**: `rsync` the checkpoint directory back to the local `models/checkpoints/`.
+   - Config via env vars: `REMOTE_HOST`, `REMOTE_USER`, `REMOTE_KEY_PATH`, `REMOTE_WORK_DIR`.
+5. Create `src/adapters/notebook_template.ipynb` — a parameterised Jupyter notebook that:
+   - Installs dependencies (`uv pip install -e .[train]` or `pip install` equivalents).
+   - Copies the Kaggle Dataset input into the expected `data/` path.
+   - Runs `python -m src.cli.train --model <model> --epochs <epochs> --patience <patience> --warmup-ratio <warmup_ratio>`.
+   - Saves the checkpoint as a notebook output file (`/kaggle/working/checkpoint.tar.gz`) so `download` can retrieve it.
+   - The notebook is rendered at submit time by replacing a `{{config}}` JSON cell with the actual parameters (no Jinja dependency needed — simple string replacement on the template).
+6. Update `src/temporal/activities.py` — modify `train_activity` to check `config.remote_backend`; import adapters from `src/adapters/`, never directly. Keep all polling logic inside the activity (not the workflow) using `activity.heartbeat(status)`:
+   - If `None` or `"local"`: call `src/domain/train/trainer.py:train()` directly (existing behaviour).
+   - If `"kaggle"`: instantiate `KaggleTrainingAdapter`, call `submit`, poll `status` until `"done"` or `"failed"`, then call `download`. Surface `"failed"` as a Temporal `ApplicationError`.
+   - If `"ssh"`: same pattern with `SshTrainingAdapter`.
+7. Expose `--remote-backend` and `--remote-model` in `src/cli/trigger_training.py` so a single CLI command can route training to Kaggle with a larger model: `python -m src.cli.trigger_training --remote-backend kaggle --remote-model HuggingFaceTB/SmolLM2-1.7B --epochs 5`.
+8. Add `KAGGLE_USERNAME`, `KAGGLE_KEY`, `REMOTE_HOST`, `REMOTE_USER`, `REMOTE_KEY_PATH` to the `temporal-worker` service in `docker-compose.yml` as optional env vars (empty string defaults).
+9. Write `tests/unit/test_remote_adapters.py` — mock `subprocess.run` / `paramiko` calls to verify:
+   - `KaggleTrainingAdapter.submit` invokes the right `kaggle` CLI commands with correct args.
+   - `KaggleTrainingAdapter.status` maps Kaggle status strings to canonical values.
+   - `SshTrainingAdapter.submit` calls `rsync` then the remote train command.
+   - The updated `train_activity` routes to the correct adapter based on `config.remote_backend`.
+---
