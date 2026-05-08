@@ -172,6 +172,84 @@
 6. Document the deploy steps in `README.md`.
 ---
 
+## Phase 6: Model Quality Improvements
+> Prerequisite: Phase 4 complete. All four tasks can run in parallel after diagnosis (6.1) is complete.
+> **Context:** Post-testing revealed the model returns EAT/SLEEP disproportionately and selects wrong target objects.
+> Root causes: (1) severe class imbalance in the training set — TOILET 20%, SLEEP 15%, all other targeted actions ~7%; (2) tick-parity labelling creates contradictory signal where identical prompts produce different labels (EAT vs DRINK) because tick is not in the prompt; (3) the prompt gives no explicit decision rule, does not sort stats by value, and does not sort objects by distance; (4) evaluation measures only schema validity, never action-selection accuracy.
+
+### Task 6.1 — Statistical quality test suite
+**Goal:** Replace the single schema-validity pass/fail with a per-stat accuracy report and action-distribution histogram so we can measure real model quality and regression-test improvements.
+**Inputs:** `tests/integration/`, `src/domain/train/evaluate.py`, `data/eval.jsonl`, `models/aipet.gguf`
+**Outputs:** `src/domain/train/quality_report.py`, `tests/integration/test_model_quality.py`
+**Steps:**
+1. Create `src/domain/train/quality_report.py` with a `run_quality_report(adapter, n_per_stat=40) -> dict` function that:
+   - For each of the 5 stats, generates `n_per_stat` synthetic requests with that stat at 0.9 and all others at 0.1, always including the required scene object.
+   - Runs inference on every request and records the predicted action.
+   - Computes **per-stat accuracy**: the fraction of responses that match the expected action category (e.g. EAT or DRINK for hunger).
+   - For every action that returned a targeted response, computes **target accuracy**: the fraction where `target_object_id` equals the closest valid object's id.
+   - Generates 200 uniformly-random requests and computes the **action frequency distribution** as a dict mapping action name → count.
+   - Returns a JSON-serialisable report with all metrics plus a pass/fail flag (per-stat accuracy ≥ 0.90, target accuracy ≥ 0.90).
+2. Expose the report via the existing `src/cli/evaluate.py` CLI with a `--quality` flag; print a summary table and write `data/quality_report.json`.
+3. Create `tests/integration/test_model_quality.py` — skip if `models/aipet.gguf` is absent:
+   - `test_per_stat_accuracy_meets_threshold`: each stat's accuracy ≥ 0.90.
+   - `test_target_accuracy_meets_threshold`: target accuracy across all targeted actions ≥ 0.90.
+   - `test_no_action_dominates`: no single action exceeds 30% of the uniform-random distribution (catches the TOILET/SLEEP/EAT bias).
+   - `test_priority_conflict`: 20 examples with two stats both at 0.7+ (one at 0.9, one at 0.7) — verify model picks the higher stat's action ≥ 80% of the time.
+   - `test_fallback_when_object_absent`: 20 examples where required object is absent — verify IDLE or EXPLORE is returned ≥ 90% of the time.
+4. Wire `test_model_quality.py` into `pytest tests/integration/` so CI automatically catches quality regressions.
+---
+
+### Task 6.2 — Dataset regeneration
+**Goal:** Fix class imbalance, eliminate inconsistent tick-parity labels, and produce richer multi-target scenes that teach distance-based selection.
+**Inputs:** `src/domain/train/dataset.py`
+**Outputs:** Updated `src/domain/train/dataset.py`, regenerated `data/train.jsonl`, `data/eval.jsonl`
+**Steps:**
+1. **Fix class imbalance** — replace `rng.choice(STAT_NAMES)` with stratified sampling:
+   - Divide each dataset into 5 equal tranches, one per dominant stat, so every action category appears at equal frequency in the labelled output.
+   - After stratification, shuffle the full set to avoid ordering bias.
+2. **Eliminate tick-parity label inconsistency** — instead of selecting EAT-vs-DRINK (or PLAY-vs-FETCH, SOCIAL-vs-FOLLOW) by tick parity, make a single random per-example choice and record it in the completion. This prevents the model from seeing the same prompt paired with different labels. Remove tick from the prompt entirely (it was already absent from `build_prompt`; verify `SceneData.tick` is not forwarded).
+3. **Richer target-selection scenes** — when generating a "required object present" example, always add 2–4 extra objects of the same valid type at varied distances (e.g. three bowls at 2 m, 8 m, 25 m for a hungry pet). This teaches the model to distinguish closest vs. far rather than defaulting to the first object id.
+4. **Add priority-conflict examples** (15% of dataset) — generate examples where two stats are high (one at 0.80–1.0, another at 0.60–0.79) with both required objects present. The labeller already handles this correctly (picks max); these examples teach the model to compare values.
+5. **Increase dataset size**: 5 000 train / 500 eval.
+6. **Add `check_dataset_distribution(path)`** to `dataset.py` that prints per-action counts and raises `AssertionError` if any action accounts for fewer than 5% or more than 25% of labelled examples. Call it at the end of `generate()`.
+7. Update unit tests in `tests/unit/test_dataset.py` to cover the new stratified generator, the richer multi-target scene, and the distribution check.
+---
+
+### Task 6.3 — Prompt engineering improvements
+**Goal:** Give the model explicit decision rules and sort the context so it can find the highest stat and closest object without needing to internally search unsorted lists.
+**Inputs:** `src/infrastructure/prompt.py`, `tests/unit/test_prompt.py`
+**Outputs:** Updated `src/infrastructure/prompt.py`, updated tests
+**Steps:**
+1. **Sort stats high → low** in the prompt so the dominant stat is always first; add a `(highest)` label to the top entry:
+   ```
+   Stats (highest first): tiredness=0.92 (highest), hunger=0.31, boredom=0.18, social=0.09, toilet=0.05
+   ```
+2. **Add explicit decision rule** immediately after the stats line:
+   ```
+   Rule: choose the action that satisfies the highest stat. If a target object is required, select the closest one.
+   ```
+3. **Sort scene objects by distance** (nearest first) and group same-type objects together so the model can read off the nearest valid target without comparing scattered values:
+   ```
+   Scene (nearest first): bowl(id=obj_2,dist=2.1), bowl(id=obj_0,dist=8.4), bed(id=obj_1,dist=15.0)
+   ```
+4. Verify the updated prompt stays under 300 tokens for all plausible inputs (add a token-count assertion in the test).
+5. Update `tests/unit/test_prompt.py` to assert: (a) stats appear in descending order, (b) the `(highest)` label appears on the top stat, (c) the explicit rule line is present, (d) scene objects are in ascending distance order.
+---
+
+### Task 6.4 — Training improvements
+**Goal:** Prevent action-frequency bias during fine-tuning and improve convergence with a larger training set.
+**Inputs:** `src/domain/train/trainer.py`, `src/cli/train.py`
+**Outputs:** Updated `src/domain/train/trainer.py`, updated `src/cli/train.py`
+**Steps:**
+1. **Weighted random sampler** — parse each example's completion JSON at dataset-load time to extract the action label; compute inverse-frequency weights so every action class is sampled with equal probability per batch, eliminating the residual frequency bias even if the dataset is already stratified.
+2. **Learning rate schedule** — add linear warmup for the first 5% of total training steps followed by cosine annealing decay to 0. Expose `--warmup-ratio` CLI arg (default 0.05).
+3. **Increase epochs to 5** with early stopping at patience = 3 (use `EarlyStoppingCallback`). Expose `--patience` CLI arg.
+4. **Per-action eval logging** — at each eval step, run the quality report on the eval set (not just loss) and log per-stat accuracy to stdout so training progress on the real metric is visible. This replaces the loss-only logging.
+5. **Expose `--base-model` CLI arg** (default `HuggingFaceTB/SmolLM2-1.7B`) — SmolLM2-1.7B has more capacity to learn numeric comparison; at Q4_K_M quantisation it uses ≈ 1 GB on the RPi (well within the 8 GB budget). Keep 360M as a fast-test option.
+6. Update `--dry-run` to exercise the full pipeline (sampler, scheduler, quality logging) in 1 step.
+
+---
+
 ## Post V1
 
 ### Task P.1 — Early stopping to protect against overfitting
