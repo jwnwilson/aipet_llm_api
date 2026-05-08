@@ -37,18 +37,33 @@ def _available_actions(request: InferenceRequest) -> list[Action]:
 
 
 def build_prompt(request: InferenceRequest) -> str:
-    """Build a compact prompt string for the LLM from an InferenceRequest."""
+    """Build a compact prompt string for the LLM from an InferenceRequest.
+
+    Stats are sorted highest-first so the dominant need is immediately visible.
+    The rule is stated explicitly so small models don't need to infer it.
+    Scene objects are sorted nearest-first so the closest valid target is easy to read.
+    """
     stats = request.pet_stats
-    objects = request.scene.objects
 
-    stats_str = (
-        f"hunger={stats.hunger:.2f} boredom={stats.boredom:.2f} "
-        f"social={stats.social:.2f} toilet={stats.toilet:.2f} "
-        f"tiredness={stats.tiredness:.2f}"
-    )
+    # Sort stats high → low so the dominant stat is always first.
+    stat_dict = {
+        "hunger": stats.hunger,
+        "boredom": stats.boredom,
+        "social": stats.social,
+        "toilet": stats.toilet,
+        "tiredness": stats.tiredness,
+    }
+    sorted_stats = sorted(stat_dict.items(), key=lambda x: -x[1])
+    stats_parts = [
+        f"{name}={value:.2f}" + (" (highest)" if i == 0 else "")
+        for i, (name, value) in enumerate(sorted_stats)
+    ]
+    stats_str = ", ".join(stats_parts)
 
-    if objects:
-        obj_parts = [f"{o.type}(id={o.id},dist={o.distance:.1f})" for o in objects]
+    # Sort objects nearest-first so the closest target is always at the front.
+    sorted_objects = sorted(request.scene.objects, key=lambda o: o.distance)
+    if sorted_objects:
+        obj_parts = [f"{o.type}(id={o.id},dist={o.distance:.1f})" for o in sorted_objects]
         scene_str = ", ".join(obj_parts)
     else:
         scene_str = "empty"
@@ -58,8 +73,10 @@ def build_prompt(request: InferenceRequest) -> str:
 
     prompt = (
         f"You are an AI pet brain. Choose the best action for the pet.\n"
-        f"Stats: {stats_str}\n"
-        f"Scene: {scene_str}\n"
+        f"Stats (highest first): {stats_str}\n"
+        f"Rule: choose the action that satisfies the highest stat. "
+        f"If a target object is required, select the closest one.\n"
+        f"Scene (nearest first): {scene_str}\n"
         f"Available actions: {actions_str}\n"
         f"Respond with JSON only."
     )

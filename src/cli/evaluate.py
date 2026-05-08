@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -19,8 +20,21 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Evaluate schema-valid response rate.")
     parser.add_argument("--checkpoint", default="models/checkpoints")
     parser.add_argument("--eval-data", default="data/eval.jsonl", dest="eval_data")
-    parser.add_argument("--model-path", default=None, dest="model_path",
-                        help="GGUF model path; if set, uses llama-cpp instead of HF checkpoint")
+    parser.add_argument(
+        "--model-path", default=None, dest="model_path",
+        help="GGUF model path; if set, uses llama-cpp instead of HF checkpoint",
+    )
+    parser.add_argument(
+        "--quality", action="store_true", default=False,
+        help=(
+            "Run the full quality report (per-stat accuracy, target accuracy, "
+            "action distribution). Requires --model-path (GGUF)."
+        ),
+    )
+    parser.add_argument(
+        "--quality-output", default="data/quality_report.json", dest="quality_output",
+        help="Path to write the JSON quality report (only used with --quality)",
+    )
     args = parser.parse_args(argv)
 
     eval_data = Path(args.eval_data)
@@ -33,10 +47,32 @@ def main(argv: list[str] | None = None) -> None:
         adapter = load_llama_cpp_adapter(args.model_path)
         infer_fn = lambda prompt: infer_llama_cpp(adapter, prompt)  # noqa: E731
     else:
+        if args.quality:
+            print("ERROR: --quality requires --model-path (GGUF model)", file=sys.stderr)
+            sys.exit(1)
         pipe = load_hf_pipeline(args.checkpoint)
         infer_fn = lambda prompt: infer_hf(pipe, prompt)  # noqa: E731
 
-    sys.exit(evaluate(eval_data, infer_fn))
+    # Always run the schema-validity evaluation.
+    exit_code = evaluate(eval_data, infer_fn)
+
+    # Optionally run the full quality report.
+    if args.quality:
+        from domain.train.quality_report import print_report, run_quality_report
+
+        print("\nRunning quality report …")
+        report = run_quality_report(adapter.infer)
+        print_report(report)
+
+        output_path = Path(args.quality_output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(report, indent=2))
+        print(f"\nQuality report written → {output_path}")
+
+        if not report["pass"]:
+            exit_code = 1
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

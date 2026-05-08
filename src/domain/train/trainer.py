@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 
 try:
     import torch
@@ -16,7 +17,11 @@ try:
         AutoModelForCausalLM,
         AutoTokenizer,
         DataCollatorForSeq2Seq,
+        EarlyStoppingCallback,
         Trainer,
+        TrainerCallback,
+        TrainerControl,
+        TrainerState,
         TrainingArguments,
     )
     _TRANSFORMERS_AVAILABLE = True
@@ -30,11 +35,13 @@ except ModuleNotFoundError:
     _DATASETS_AVAILABLE = False
 
 MAX_LENGTH = 512
-DEFAULT_MODEL = "HuggingFaceTB/SmolLM-360M"
+DEFAULT_MODEL = "HuggingFaceTB/SmolLM2-1.7B"
 DEFAULT_TRAIN_DATA = "data/train.jsonl"
 DEFAULT_EVAL_DATA = "data/eval.jsonl"
 DEFAULT_OUTPUT_DIR = "models/checkpoints"
-DEFAULT_EPOCHS = 3
+DEFAULT_EPOCHS = 5
+DEFAULT_PATIENCE = 3
+DEFAULT_WARMUP_RATIO = 0.05
 
 
 def load_jsonl(path: str) -> list[dict]:
@@ -49,6 +56,22 @@ def load_jsonl(path: str) -> list[dict]:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{path}:{lineno}: invalid JSON — {exc}") from exc
     return records
+
+
+def compute_sample_weights(records: list[dict]) -> list[float]:
+    """Compute inverse-frequency sample weights so each action class is sampled equally."""
+    actions: list[str] = []
+    for r in records:
+        try:
+            completion = json.loads(r["completion"])
+            actions.append(completion.get("action", "IDLE"))
+        except Exception:
+            actions.append("IDLE")
+
+    counts = Counter(actions)
+    n = len(actions)
+    n_classes = len(counts)
+    return [n / (n_classes * counts[a]) for a in actions]
 
 
 def build_hf_dataset(records: list[dict], tokenizer, max_length: int = MAX_LENGTH) -> "Dataset":
@@ -86,12 +109,107 @@ def build_hf_dataset(records: list[dict], tokenizer, max_length: int = MAX_LENGT
     return dataset
 
 
+class _ActionQualityCallback(TrainerCallback):
+    """Logs per-action accuracy on a small eval sample at each eval step."""
+
+    def __init__(self, eval_records: list[dict], tokenizer, n_sample: int = 20):
+        self._records = eval_records[:n_sample]
+        self._tokenizer = tokenizer
+
+    def on_evaluate(
+        self,
+        args: "TrainingArguments",
+        state: "TrainerState",
+        control: "TrainerControl",
+        model=None,
+        **kwargs,
+    ) -> None:
+        if model is None or not self._records:
+            return
+
+        from infrastructure.prompt import parse_response
+
+        model.eval()
+        action_counts: Counter[str] = Counter()
+        correct = 0
+        total = 0
+
+        for record in self._records:
+            prompt = record["prompt"]
+            try:
+                expected_action = json.loads(record["completion"]).get("action", "")
+            except Exception:
+                continue
+
+            inputs = self._tokenizer(prompt, return_tensors="pt")
+            if _TORCH_AVAILABLE:
+                device = next(model.parameters()).device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                generated = model.generate(
+                    inputs["input_ids"],
+                    attention_mask=inputs.get("attention_mask"),
+                    max_new_tokens=64,
+                    do_sample=False,
+                    pad_token_id=self._tokenizer.eos_token_id,
+                )
+            new_tokens = generated[0][inputs["input_ids"].shape[1]:]
+            raw = self._tokenizer.decode(new_tokens, skip_special_tokens=True)
+
+            try:
+                resp = parse_response(raw)
+                predicted = resp.action.value
+                action_counts[predicted] += 1
+                if predicted == expected_action:
+                    correct += 1
+            except Exception:
+                action_counts["[INVALID]"] += 1
+            total += 1
+
+        if total > 0:
+            pct = correct / total
+            print(f"\n[Quality] step={state.global_step}  action_acc={correct}/{total} ({pct:.1%})")
+            for action, count in sorted(action_counts.items(), key=lambda x: -x[1]):
+                print(f"  {action}: {count}")
+
+
+class _WeightedTrainer(Trainer):
+    """Trainer subclass that supports inverse-frequency weighted random sampling."""
+
+    def __init__(self, *args, sample_weights: list[float] | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._sample_weights = sample_weights
+
+    def get_train_dataloader(self):
+        if self._sample_weights is None:
+            return super().get_train_dataloader()
+
+        from torch.utils.data import DataLoader, WeightedRandomSampler
+
+        weights_tensor = torch.tensor(self._sample_weights, dtype=torch.double)
+        sampler = WeightedRandomSampler(
+            weights=weights_tensor,
+            num_samples=len(self.train_dataset),
+            replacement=True,
+        )
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.args.per_device_train_batch_size,
+            sampler=sampler,
+            collate_fn=self.data_collator,
+            num_workers=0,
+        )
+
+
 def train(
     model: str = DEFAULT_MODEL,
     train_data: str = DEFAULT_TRAIN_DATA,
     eval_data: str = DEFAULT_EVAL_DATA,
     output_dir: str = DEFAULT_OUTPUT_DIR,
     epochs: int = DEFAULT_EPOCHS,
+    patience: int = DEFAULT_PATIENCE,
+    warmup_ratio: float = DEFAULT_WARMUP_RATIO,
     dry_run: bool = False,
     batch_size: int | None = None,
     no_mps: bool = False,
@@ -139,6 +257,8 @@ def train(
     print(f"Tokenising {len(eval_records)} eval examples …")
     eval_dataset = build_hf_dataset(eval_records, tokenizer)
 
+    sample_weights = compute_sample_weights(train_records)
+
     os.makedirs(output_dir, exist_ok=True)
 
     if dry_run:
@@ -161,8 +281,11 @@ def train(
             per_device_train_batch_size=effective_batch,
             per_device_eval_batch_size=effective_batch,
             gradient_accumulation_steps=grad_accum,
-            warmup_steps=50, weight_decay=0.01,
-            fp16=use_cuda, use_cpu=no_mps and not use_cuda,
+            warmup_ratio=warmup_ratio,
+            lr_scheduler_type="cosine",
+            weight_decay=0.01,
+            fp16=use_cuda,
+            use_cpu=no_mps and not use_cuda,
         )
 
     data_collator = DataCollatorForSeq2Seq(
@@ -170,10 +293,16 @@ def train(
         padding=True, pad_to_multiple_of=8, label_pad_token_id=-100,
     )
 
-    trainer = Trainer(
+    callbacks = [_ActionQualityCallback(eval_records, tokenizer, n_sample=20)]
+    if not dry_run:
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience))
+
+    trainer = _WeightedTrainer(
         model=hf_model, args=training_args,
         train_dataset=train_dataset, eval_dataset=eval_dataset,
         data_collator=data_collator,
+        callbacks=callbacks,
+        sample_weights=sample_weights,
     )
 
     print("Starting training …")

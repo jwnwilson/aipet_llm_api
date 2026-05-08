@@ -11,34 +11,42 @@ from infrastructure.prompt import build_prompt, parse_response
 # ---------------------------------------------------------------------------
 
 
-def _make_request(objects: list[SceneObject] | None = None, tick: int = 0) -> InferenceRequest:
+def _make_request(
+    objects: list[SceneObject] | None = None,
+    tick: int = 0,
+    hunger: float = 0.5,
+    boredom: float = 0.3,
+    social: float = 0.2,
+    toilet: float = 0.1,
+    tiredness: float = 0.4,
+) -> InferenceRequest:
     scene = SceneData(objects=objects or [], tick=tick)
-    stats = PetStats(hunger=0.5, boredom=0.3, social=0.2, toilet=0.1, tiredness=0.4)
+    stats = PetStats(hunger=hunger, boredom=boredom, social=social, toilet=toilet, tiredness=tiredness)
     return InferenceRequest(scene=scene, pet_stats=stats)
 
 
-def _bowl_object() -> SceneObject:
-    return SceneObject(id="bowl_1", type="bowl", distance=2.0)
+def _bowl_object(distance: float = 2.0) -> SceneObject:
+    return SceneObject(id="bowl_1", type="bowl", distance=distance)
 
 
-def _toy_object() -> SceneObject:
-    return SceneObject(id="toy_1", type="toy", distance=3.0)
+def _toy_object(distance: float = 3.0) -> SceneObject:
+    return SceneObject(id="toy_1", type="toy", distance=distance)
 
 
-def _bed_object() -> SceneObject:
-    return SceneObject(id="bed_1", type="bed", distance=1.5)
+def _bed_object(distance: float = 1.5) -> SceneObject:
+    return SceneObject(id="bed_1", type="bed", distance=distance)
 
 
-def _player_object() -> SceneObject:
-    return SceneObject(id="player_1", type="player", distance=4.0)
+def _player_object(distance: float = 4.0) -> SceneObject:
+    return SceneObject(id="player_1", type="player", distance=distance)
 
 
 # ---------------------------------------------------------------------------
-# build_prompt tests
+# build_prompt — available actions filtering
 # ---------------------------------------------------------------------------
 
 
-class TestBuildPrompt:
+class TestAvailableActions:
     def test_bowl_in_scene_includes_eat_and_drink(self):
         request = _make_request(objects=[_bowl_object()])
         prompt = build_prompt(request)
@@ -48,14 +56,12 @@ class TestBuildPrompt:
     def test_bowl_in_scene_excludes_sleep(self):
         request = _make_request(objects=[_bowl_object()])
         prompt = build_prompt(request)
-        # Extract only the "Available actions" line to avoid matching schema enum values.
         actions_line = next(l for l in prompt.splitlines() if l.startswith("Available actions:"))
         assert "SLEEP" not in actions_line
 
     def test_empty_scene_only_toilet_idle_explore(self):
         request = _make_request(objects=[])
         prompt = build_prompt(request)
-        # Check only the "Available actions" line to avoid matching schema enum values.
         actions_line = next(l for l in prompt.splitlines() if l.startswith("Available actions:"))
         for action in [Action.TOILET, Action.IDLE, Action.EXPLORE]:
             assert action.value in actions_line
@@ -80,23 +86,126 @@ class TestBuildPrompt:
         assert "SOCIAL" in prompt
         assert "FOLLOW" in prompt
 
+
+# ---------------------------------------------------------------------------
+# build_prompt — sorted stats
+# ---------------------------------------------------------------------------
+
+
+class TestSortedStats:
+    def test_stats_line_starts_with_highest_first_label(self):
+        request = _make_request(hunger=0.9, tiredness=0.1, boredom=0.2, social=0.05, toilet=0.3)
+        prompt = build_prompt(request)
+        stats_line = next(l for l in prompt.splitlines() if l.startswith("Stats"))
+        assert "hunger=0.90 (highest)" in stats_line
+
+    def test_highest_stat_appears_first_in_stats_line(self):
+        # tiredness is highest
+        request = _make_request(hunger=0.3, tiredness=0.8, boredom=0.2, social=0.1, toilet=0.4)
+        prompt = build_prompt(request)
+        stats_line = next(l for l in prompt.splitlines() if l.startswith("Stats"))
+        parts = [p.strip() for p in stats_line.split(",")]
+        first_stat_name = parts[0].split("=")[0].split(")")[0].split("(")[0].strip().split()[-1]
+        assert "tiredness" in parts[0], f"Expected tiredness first, got: {stats_line}"
+
+    def test_stats_in_descending_order(self):
+        request = _make_request(hunger=0.2, tiredness=0.9, boredom=0.5, social=0.1, toilet=0.7)
+        prompt = build_prompt(request)
+        stats_line = next(l for l in prompt.splitlines() if l.startswith("Stats"))
+        # Extract the float values in the order they appear
+        import re
+        values = [float(m) for m in re.findall(r"=(\d+\.\d+)", stats_line)]
+        assert values == sorted(values, reverse=True), (
+            f"Stats not in descending order: {values}"
+        )
+
+    def test_highest_label_appears_exactly_once(self):
+        request = _make_request()
+        prompt = build_prompt(request)
+        assert prompt.count("(highest)") == 1
+
+
+# ---------------------------------------------------------------------------
+# build_prompt — explicit rule line
+# ---------------------------------------------------------------------------
+
+
+class TestRuleLine:
+    def test_rule_line_present(self):
+        request = _make_request()
+        prompt = build_prompt(request)
+        assert "Rule:" in prompt
+
+    def test_rule_mentions_highest_stat(self):
+        request = _make_request()
+        prompt = build_prompt(request)
+        rule_line = next(l for l in prompt.splitlines() if "Rule:" in l)
+        assert "highest stat" in rule_line
+
+    def test_rule_mentions_closest(self):
+        request = _make_request()
+        prompt = build_prompt(request)
+        rule_line = next(l for l in prompt.splitlines() if "Rule:" in l)
+        assert "closest" in rule_line
+
+
+# ---------------------------------------------------------------------------
+# build_prompt — sorted scene objects
+# ---------------------------------------------------------------------------
+
+
+class TestSortedScene:
+    def test_objects_sorted_nearest_first(self):
+        objects = [
+            SceneObject(id="far", type="bowl", distance=20.0),
+            SceneObject(id="close", type="toy", distance=1.5),
+            SceneObject(id="mid", type="bed", distance=8.0),
+        ]
+        request = _make_request(objects=objects)
+        prompt = build_prompt(request)
+        scene_line = next(l for l in prompt.splitlines() if l.startswith("Scene"))
+        # "close" should appear before "mid" which should appear before "far"
+        pos_close = scene_line.index("close")
+        pos_mid = scene_line.index("mid")
+        pos_far = scene_line.index("far")
+        assert pos_close < pos_mid < pos_far, (
+            f"Objects not sorted nearest-first: {scene_line}"
+        )
+
+    def test_scene_line_label_nearest_first(self):
+        request = _make_request(objects=[_bowl_object()])
+        prompt = build_prompt(request)
+        scene_line = next(l for l in prompt.splitlines() if l.startswith("Scene"))
+        assert "nearest first" in scene_line
+
+    def test_empty_scene_shows_empty(self):
+        request = _make_request(objects=[])
+        prompt = build_prompt(request)
+        assert "empty" in prompt
+
+
+# ---------------------------------------------------------------------------
+# build_prompt — length constraint
+# ---------------------------------------------------------------------------
+
+
+class TestPromptLength:
     def test_prompt_under_1200_chars(self):
-        # Use a scene with all object types to maximise prompt length.
         objects = [_bowl_object(), _toy_object(), _bed_object(), _player_object()]
         request = _make_request(objects=objects)
         prompt = build_prompt(request)
         assert len(prompt) < 1200, f"Prompt too long: {len(prompt)} chars"
+
+    def test_prompt_instructs_json_only(self):
+        request = _make_request()
+        prompt = build_prompt(request)
+        assert "JSON" in prompt
 
     def test_prompt_does_not_contain_schema(self):
         request = _make_request()
         prompt = build_prompt(request)
         assert "Schema:" not in prompt
         assert "$defs" not in prompt
-
-    def test_prompt_instructs_json_only(self):
-        request = _make_request()
-        prompt = build_prompt(request)
-        assert "JSON" in prompt
 
 
 # ---------------------------------------------------------------------------
