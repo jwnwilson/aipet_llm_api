@@ -254,7 +254,8 @@ def train(
     load_dtype = None
     print(f"Loading model from: {model}" + (f"  dtype=float16" if use_mps else ""))
     hf_model = AutoModelForCausalLM.from_pretrained(
-        model, trust_remote_code=True, torch_dtype=load_dtype
+        model, trust_remote_code=True, torch_dtype=load_dtype,
+        attn_implementation="eager",
     )
     # Gradient checkpointing trades compute for memory — on by default for non-CUDA
     # devices where RAM is the binding constraint.

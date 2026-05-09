@@ -35,7 +35,7 @@ if not wheels:
     raise FileNotFoundError(
         f"No .whl found in {INPUT_BASE} — wheel build or staging failed."
     )
-subprocess.run(["uv", "pip", "install", "-q", str(wheels[0])], check=True)
+subprocess.run(["uv", "pip", "install", "--no-deps", "-q", str(wheels[0])], check=True)
 print(f"Installed {wheels[0].name}")
 
 # ---------------------------------------------------------------------------

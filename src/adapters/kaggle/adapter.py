@@ -71,7 +71,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             "kernel_type": "notebook",
             "is_private": True,
             "enable_gpu": True,
-            "enable_internet": False,
+            "enable_internet": True,
             "dataset_sources": [dataset_ref],
         }
         (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
