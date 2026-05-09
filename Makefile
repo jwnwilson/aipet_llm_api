@@ -115,11 +115,11 @@ kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIE
 		--model $(MODEL) \
 		$(if $(SKIP_GENERATE),--skip-generate)
 
-test-notebook-local: ## Simulate the Kaggle notebook pipeline locally (install pkg + dry-run train)
+kaggle-notebook-local: ## Simulate the Kaggle notebook pipeline locally (install pkg + dry-run train)
 	@echo "--- Installing package from local source ---"
 	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) uv pip install -e ".[train]" --quiet
 	@echo "--- Running training dry-run (mirrors Kaggle kernel cell 3) ---"
-	python -m cli.train \
+	uv run python -m cli.train \
 		--dry-run \
 		--train-data $(DATA_DIR)/train.jsonl \
 		--eval-data $(DATA_DIR)/eval.jsonl \
