@@ -28,7 +28,10 @@ htmlcov/
 
 # Models (large binaries — store separately)
 models/*
-models/*
+
+# Kaggle kernel staging directories
+.kaggle_kernels/
+models/kaggle_kernels/
 
 # Data (generated — not source-controlled)
 data/*

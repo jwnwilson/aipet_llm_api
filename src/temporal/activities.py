@@ -102,7 +102,7 @@ async def generate_dataset_activity(config: DatasetConfig) -> DatasetPaths:
 
 def _make_remote_adapter(backend: str) -> RemoteTrainingPort:
     if backend == "kaggle":
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         return KaggleTrainingAdapter()
     if backend == "ssh":
         from adapters.ssh_adapter import SshTrainingAdapter

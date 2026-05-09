@@ -1,11 +1,11 @@
-"""Unit tests for src/adapters/kaggle_adapter.py and src/adapters/ssh_adapter.py."""
+"""Unit tests for src/adapters/kaggle/ and src/adapters/ssh_adapter.py."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -44,36 +44,41 @@ def _ok(stdout: str = "") -> MagicMock:
 
 
 class TestKaggleAdapterSubmit:
-    def test_calls_datasets_version(self, tmp_path, monkeypatch):
+    def test_calls_datasets_version_when_dataset_exists(self, tmp_path, monkeypatch):
+        import subprocess as _sp
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
         calls: list[list[str]] = []
 
         def fake_run(cmd, **kw):
             calls.append(list(cmd))
+            if "create" in cmd:
+                raise _sp.CalledProcessError(1, cmd)
             return _ok()
 
-        monkeypatch.setattr("adapters.kaggle_adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
 
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         adapter.submit(_config())
 
         dataset_calls = [c for c in calls if "datasets" in c]
-        assert len(dataset_calls) == 1
-        assert "version" in dataset_calls[0]
-        assert "-p" in dataset_calls[0]
+        assert len(dataset_calls) == 2  # create (failed) + version
+        assert "version" in dataset_calls[1]
+        assert "-p" in dataset_calls[1]
 
     def test_calls_kernels_push(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
         calls: list[list[str]] = []
 
         def fake_run(cmd, **kw):
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.kaggle_adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
 
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         adapter.submit(_config())
 
@@ -82,9 +87,10 @@ class TestKaggleAdapterSubmit:
 
     def test_returns_slug_with_username(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "myuser")
-        monkeypatch.setattr("adapters.kaggle_adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         slug = adapter.submit(_config(experiment_name="myexp"))
 
@@ -92,9 +98,10 @@ class TestKaggleAdapterSubmit:
 
     def test_renders_notebook_with_config(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle_adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         cfg = _config(experiment_name="render-test", epochs=7)
         adapter.submit(cfg)
@@ -103,13 +110,14 @@ class TestKaggleAdapterSubmit:
         assert notebook_path.exists(), "Rendered notebook not written"
         content = notebook_path.read_text()
         assert "{{config}}" not in content, "Template placeholder was not replaced"
-        assert '"epochs": 7' in content
+        assert "'epochs': 7" in content  # injected as Python repr, not JSON
 
     def test_writes_kernel_metadata(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle_adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         adapter.submit(_config(experiment_name="meta-test"))
 
@@ -123,11 +131,12 @@ class TestKaggleAdapterSubmit:
 class TestKaggleAdapterStatus:
     def _status(self, stdout: str, monkeypatch, tmp_path) -> str:
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
         monkeypatch.setattr(
-            "adapters.kaggle_adapter.subprocess.run",
+            "adapters.kaggle.adapter.subprocess.run",
             lambda *a, **kw: _ok(stdout),
         )
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         return KaggleTrainingAdapter(work_dir=tmp_path).status("testuser/exp")
 
     def test_complete_maps_to_done(self, tmp_path, monkeypatch):
@@ -149,15 +158,16 @@ class TestKaggleAdapterStatus:
 class TestKaggleAdapterDownload:
     def test_calls_kernels_output(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
         calls: list[list[str]] = []
 
         def fake_run(cmd, **kw):
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.kaggle_adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
 
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         result = adapter.download("testuser/exp", tmp_path / "dest")
 
@@ -166,19 +176,19 @@ class TestKaggleAdapterDownload:
 
     def test_unpacks_archive_if_present(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle_adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
         import tarfile
         dest = tmp_path / "dest"
         dest.mkdir()
-        # Create a fake checkpoint.tar.gz in dest before download is called.
         marker = tmp_path / "marker.txt"
         marker.write_text("hello")
         archive = dest / "checkpoint.tar.gz"
         with tarfile.open(archive, "w:gz") as tf:
             tf.add(marker, arcname="marker.txt")
 
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        from adapters.kaggle import KaggleTrainingAdapter
         KaggleTrainingAdapter(work_dir=tmp_path).download("testuser/exp", dest)
 
         assert not archive.exists(), "Archive should be deleted after extraction"
@@ -330,6 +340,7 @@ class TestTrainActivityRouting:
         assert result.path == "models/checkpoints"
 
     def test_kaggle_backend_routes_to_kaggle_adapter(self, monkeypatch):
+        monkeypatch.setenv("KAGGLE_REPO_URL", "https://github.com/test/repo.git")
         import temporal.activities as acts
 
         submitted = {}

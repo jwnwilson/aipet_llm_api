@@ -138,7 +138,7 @@ wheels = [
 [[package]]
 name = "aipet-llm"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "llama-cpp-python" },

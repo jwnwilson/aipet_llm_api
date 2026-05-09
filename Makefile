@@ -7,13 +7,15 @@ OUTPUT_DIR  ?= models/checkpoints
 IMAGE       ?= aipet-llm
 RPI_HOST    ?= raspberrypi.local
 
+KAGGLE_REPO_URL ?= https://github.com/jwnwilson/aipet_llm
+
 EXPERIMENT      ?= experiment-01
 EPOCHS          ?= 5
 PATIENCE        ?= 3
 REMOTE_BACKEND  ?= kaggle
 MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 
-.PHONY: serve test test-unit test-integration test-cli data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger help
+.PHONY: serve test test-unit test-integration test-cli data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger kaggle-train help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -87,13 +89,13 @@ docker-deploy: docker-export ## Build, export, and copy the image to the RPi (RP
 	ssh pi@$(RPI_HOST) "docker load -i ~/$(IMAGE).tar.gz && docker compose up -d"
 
 temporal-up: ## Start Temporal server + web UI (localhost:8233)
-	docker compose up temporal temporal-ui -d
+	docker compose up temporal temporal-db temporal-ui -d
 
 temporal-down: ## Stop Temporal server and worker
 	docker compose down temporal temporal-ui temporal-db temporal-worker
 
 temporal-worker: ## Run the Temporal activity worker locally  (requires Temporal server)
-	PYTHONPATH=src uv run python -m src.temporal.worker
+	PYTHONPATH=src uv run python -m temporal.worker
 
 temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS / PATIENCE / REMOTE_BACKEND / MODEL / SKIP_GENERATE=1)
 	PYTHONPATH=src uv run python src/cli/trigger_training.py \
@@ -103,6 +105,26 @@ temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS 
 		--remote-backend $(REMOTE_BACKEND) \
 		--model $(MODEL) \
 		$(if $(SKIP_GENERATE),--skip-generate)
+
+kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/cli/trigger_training.py \
+		--experiment-name $(EXPERIMENT) \
+		--epochs $(EPOCHS) \
+		--patience $(PATIENCE) \
+		--remote-backend kaggle \
+		--model $(MODEL) \
+		$(if $(SKIP_GENERATE),--skip-generate)
+
+test-notebook-local: ## Simulate the Kaggle notebook pipeline locally (install pkg + dry-run train)
+	@echo "--- Installing package from local source ---"
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) uv pip install -e ".[train]" --quiet
+	@echo "--- Running training dry-run (mirrors Kaggle kernel cell 3) ---"
+	python -m cli.train \
+		--dry-run \
+		--train-data $(DATA_DIR)/train.jsonl \
+		--eval-data $(DATA_DIR)/eval.jsonl \
+		--output-dir /tmp/aipet-test-checkpoint
+	@echo "--- Local notebook test passed ---"
 
 request: ## Send a test /infer request to the running API server  (HOST/PORT to override)
 	curl -s -X POST http://$(HOST):$(PORT)/infer \
