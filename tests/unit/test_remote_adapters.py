@@ -334,8 +334,8 @@ class TestTrainActivityRouting:
 
         submitted = {}
 
-        async def fake_remote(config, backend):
-            submitted["backend"] = backend
+        async def fake_remote(config, adapter):
+            submitted["adapter"] = type(adapter).__name__
             from temporal.activities import CheckpointPath
             return CheckpointPath(path="models/checkpoints")
 
@@ -344,15 +344,15 @@ class TestTrainActivityRouting:
         from temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="kaggle")
         self._run(train_activity(config))
-        assert submitted["backend"] == "kaggle"
+        assert submitted["adapter"] == "KaggleTrainingAdapter"
 
     def test_ssh_backend_routes_to_ssh_adapter(self, monkeypatch):
         import temporal.activities as acts
 
         submitted = {}
 
-        async def fake_remote(config, backend):
-            submitted["backend"] = backend
+        async def fake_remote(config, adapter):
+            submitted["adapter"] = type(adapter).__name__
             from temporal.activities import CheckpointPath
             return CheckpointPath(path="models/checkpoints")
 
@@ -361,7 +361,7 @@ class TestTrainActivityRouting:
         from temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="ssh")
         self._run(train_activity(config))
-        assert submitted["backend"] == "ssh"
+        assert submitted["adapter"] == "SshTrainingAdapter"
 
     def test_unknown_backend_raises_application_error(self):
         from temporalio.exceptions import ApplicationError

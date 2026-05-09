@@ -12,6 +12,7 @@ from pathlib import Path
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.ports import RemoteTrainingPort
 from domain.train.dataset import EVAL_SIZE, SEED, TRAIN_SIZE
 from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
 
@@ -99,16 +100,25 @@ async def generate_dataset_activity(config: DatasetConfig) -> DatasetPaths:
     )
 
 
+def _make_remote_adapter(backend: str) -> RemoteTrainingPort:
+    if backend == "kaggle":
+        from adapters.kaggle_adapter import KaggleTrainingAdapter
+        return KaggleTrainingAdapter()
+    if backend == "ssh":
+        from adapters.ssh_adapter import SshTrainingAdapter
+        return SshTrainingAdapter()
+    raise ApplicationError(f"Unknown remote_backend: {backend!r}")
+
+
 @activity.defn
 async def train_activity(config: TrainConfig) -> CheckpointPath:
     backend = config.remote_backend or "local"
 
     if backend == "local":
         return await _train_local(config)
-    elif backend in ("kaggle", "ssh"):
-        return await _train_remote(config, backend)
-    else:
-        raise ApplicationError(f"Unknown remote_backend: {config.remote_backend!r}")
+
+    adapter = _make_remote_adapter(backend)
+    return await _train_remote(config, adapter)
 
 
 async def _train_local(config: TrainConfig) -> CheckpointPath:
@@ -130,7 +140,7 @@ async def _train_local(config: TrainConfig) -> CheckpointPath:
     return CheckpointPath(path=config.output_dir)
 
 
-async def _train_remote(config: TrainConfig, backend: str) -> CheckpointPath:
+async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> CheckpointPath:
     from domain.models import RemoteTrainConfig
 
     remote_config = RemoteTrainConfig(
@@ -143,40 +153,33 @@ async def _train_remote(config: TrainConfig, backend: str) -> CheckpointPath:
         experiment_name=config.experiment_name or "aipet",
     )
 
-    if backend == "kaggle":
-        from adapters.kaggle_adapter import KaggleTrainingAdapter
-        adapter = KaggleTrainingAdapter()
-    else:
-        from adapters.ssh_adapter import SshTrainingAdapter
-        adapter = SshTrainingAdapter()
-
     try:
         run_id = adapter.submit(remote_config)
     except Exception as exc:
-        raise ApplicationError(f"Remote submit failed ({backend}): {exc}") from exc
+        raise ApplicationError(f"Remote submit failed: {exc}") from exc
 
-    activity.logger.info("Remote job submitted: backend=%s run_id=%s", backend, run_id)
+    activity.logger.info("Remote job submitted: adapter=%s run_id=%s", type(adapter).__name__, run_id)
 
     while True:
         try:
             status = adapter.status(run_id)
         except Exception as exc:
-            raise ApplicationError(f"Remote status check failed ({backend}): {exc}") from exc
+            raise ApplicationError(f"Remote status check failed: {exc}") from exc
 
         activity.heartbeat(status)
-        activity.logger.info("Remote status: backend=%s run_id=%s status=%s", backend, run_id, status)
+        activity.logger.info("Remote status: adapter=%s run_id=%s status=%s", type(adapter).__name__, run_id, status)
 
         if status == "done":
             dest = Path(config.output_dir)
             try:
                 checkpoint_path = adapter.download(run_id, dest)
             except Exception as exc:
-                raise ApplicationError(f"Remote download failed ({backend}): {exc}") from exc
+                raise ApplicationError(f"Remote download failed: {exc}") from exc
             return CheckpointPath(path=checkpoint_path)
 
         if status == "failed":
             raise ApplicationError(
-                f"Remote training failed (backend={backend}, run_id={run_id})"
+                f"Remote training failed (adapter={type(adapter).__name__}, run_id={run_id})"
             )
 
         await asyncio.sleep(60)

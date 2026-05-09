@@ -7,9 +7,11 @@ OUTPUT_DIR  ?= models/checkpoints
 IMAGE       ?= aipet-llm
 RPI_HOST    ?= raspberrypi.local
 
-EXPERIMENT   ?= experiment-01
-EPOCHS       ?= 5
-PATIENCE     ?= 3
+EXPERIMENT      ?= experiment-01
+EPOCHS          ?= 5
+PATIENCE        ?= 3
+REMOTE_BACKEND  ?= kaggle
+MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 
 .PHONY: serve test test-unit test-integration test-cli data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger help
 
@@ -85,7 +87,7 @@ docker-deploy: docker-export ## Build, export, and copy the image to the RPi (RP
 	ssh pi@$(RPI_HOST) "docker load -i ~/$(IMAGE).tar.gz && docker compose up -d"
 
 temporal-up: ## Start Temporal server + web UI (localhost:8233)
-	docker compose up temporal -d
+	docker compose up temporal temporal-ui -d
 
 temporal-down: ## Stop Temporal server and worker
 	docker compose down temporal temporal-ui temporal-db temporal-worker
@@ -93,11 +95,13 @@ temporal-down: ## Stop Temporal server and worker
 temporal-worker: ## Run the Temporal activity worker locally  (requires Temporal server)
 	PYTHONPATH=src uv run python -m src.temporal.worker
 
-temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS / PATIENCE / SKIP_GENERATE=1)
+temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS / PATIENCE / REMOTE_BACKEND / MODEL / SKIP_GENERATE=1)
 	PYTHONPATH=src uv run python src/cli/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
+		--remote-backend $(REMOTE_BACKEND) \
+		--model $(MODEL) \
 		$(if $(SKIP_GENERATE),--skip-generate)
 
 request: ## Send a test /infer request to the running API server  (HOST/PORT to override)

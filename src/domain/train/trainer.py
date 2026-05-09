@@ -27,6 +27,9 @@ try:
     _TRANSFORMERS_AVAILABLE = True
 except ModuleNotFoundError:
     _TRANSFORMERS_AVAILABLE = False
+    # Stubs so class definitions below parse without transformers installed.
+    TrainerCallback = object  # type: ignore[assignment,misc]
+    Trainer = object  # type: ignore[assignment,misc]
 
 try:
     from datasets import Dataset
