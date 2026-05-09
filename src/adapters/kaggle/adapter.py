@@ -27,29 +27,24 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
     """RemoteTrainingPort implementation that submits training as a Kaggle kernel.
 
     Credentials are read from env vars ``KAGGLE_USERNAME`` and ``KAGGLE_KEY``.
-    The project must be pip-installable; set ``KAGGLE_REPO_URL`` to the GitHub
-    URL so the kernel can ``pip install git+<url>``.
+    No internet access is required on the Kaggle kernel — the project is built
+    into a wheel locally and uploaded as part of the dataset.
 
     Typical flow:
-        1. Stage data/ as a Kaggle Dataset (flat .jsonl files only).
-        2. Render ``notebook_template.ipynb`` with the run config + repo URL.
+        1. Build a wheel of the project and stage it alongside the .jsonl data
+           files as a Kaggle Dataset (all flat files, no subdirectories).
+        2. Render ``notebook_template.ipynb`` with the run config.
         3. Write ``kernel-metadata.json`` pointing at the dataset.
         4. Push the kernel — Kaggle queues it for GPU execution.
         5. Poll ``kaggle kernels status`` until done/failed.
         6. Pull the checkpoint archive via ``kaggle kernels output``.
     """
 
-    def __init__(self, work_dir: Path | None = None, repo_url: str | None = None) -> None:
+    def __init__(self, work_dir: Path | None = None) -> None:
         self._username = os.environ.get("KAGGLE_USERNAME", "")
         self._work_dir = work_dir or Path("models/kaggle_kernels")
         self._work_dir.mkdir(parents=True, exist_ok=True)
-        self._project_root = Path(__file__).parents[2].resolve()
-        self._repo_url = repo_url or os.environ.get("KAGGLE_REPO_URL", "")
-        if not self._repo_url:
-            raise ValueError(
-                "KAGGLE_REPO_URL must be set to the GitHub URL of this repo "
-                "(e.g. https://github.com/user/aipet_llm.git)"
-            )
+        self._project_root = Path(__file__).parents[3].resolve()
 
     # ------------------------------------------------------------------
     # RemoteTrainingPort
@@ -76,7 +71,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             "kernel_type": "notebook",
             "is_private": True,
             "enable_gpu": True,
-            "enable_internet": True,
+            "enable_internet": False,
             "dataset_sources": [dataset_ref],
         }
         (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
@@ -117,11 +112,23 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
     def _stage_dataset(
         self, config: RemoteTrainConfig, staging: Path, dataset_slug: str
     ) -> None:
-        """Stage training data as flat .jsonl files for the Kaggle dataset upload."""
+        """Build a project wheel and stage it with the training data for Kaggle upload.
+
+        All files are placed flat in the staging directory (no subdirectories) to
+        avoid Kaggle CLI upload reliability issues with nested directory structures.
+        """
         if staging.exists():
             shutil.rmtree(staging)
         staging.mkdir(parents=True)
 
+        # Build a wheel of the project and copy it into staging
+        subprocess.run(
+            ["uv", "build", "--wheel", "--out-dir", str(staging)],
+            cwd=str(self._project_root),
+            check=True,
+        )
+
+        # Copy flat .jsonl training data files
         train_data = Path(config.train_data)
         if not train_data.is_absolute():
             train_data = self._project_root / train_data
@@ -161,7 +168,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             "experiment_name": config.experiment_name,
         })
 
-        replacements = {"{{config}}": config_repr, "{{repo_url}}": self._repo_url}
+        replacements = {"{{config}}": config_repr}
         for cell in notebook["cells"]:
             src = cell["source"]
             if isinstance(src, str):

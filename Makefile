@@ -7,8 +7,6 @@ OUTPUT_DIR  ?= models/checkpoints
 IMAGE       ?= aipet-llm
 RPI_HOST    ?= raspberrypi.local
 
-KAGGLE_REPO_URL ?= https://github.com/jwnwilson/aipet_llm
-
 EXPERIMENT      ?= experiment-01
 EPOCHS          ?= 5
 PATIENCE        ?= 3
@@ -95,10 +93,10 @@ temporal-down: ## Stop Temporal server and worker
 	docker compose down temporal temporal-ui temporal-db temporal-worker
 
 temporal-worker: ## Run the Temporal activity worker locally  (requires Temporal server)
-	PYTHONPATH=src uv run python -m temporal.worker
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python -m temporal.worker
 
 temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS / PATIENCE / REMOTE_BACKEND / MODEL / SKIP_GENERATE=1)
-	PYTHONPATH=src uv run python src/cli/trigger_training.py \
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/cli/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -107,7 +105,7 @@ temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS 
 		$(if $(SKIP_GENERATE),--skip-generate)
 
 kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
-	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/cli/trigger_training.py \
+	PYTHONPATH=src uv run python src/cli/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -115,16 +113,17 @@ kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIE
 		--model $(MODEL) \
 		$(if $(SKIP_GENERATE),--skip-generate)
 
-kaggle-notebook-local: ## Simulate the Kaggle notebook pipeline locally (install pkg + dry-run train)
-	@echo "--- Installing package from local source ---"
-	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) uv pip install -e ".[train]" --quiet
-	@echo "--- Running training dry-run (mirrors Kaggle kernel cell 3) ---"
-	uv run python -m cli.train \
-		--dry-run \
-		--train-data $(DATA_DIR)/train.jsonl \
-		--eval-data $(DATA_DIR)/eval.jsonl \
-		--output-dir /tmp/aipet-test-checkpoint
-	@echo "--- Local notebook test passed ---"
+kaggle-notebook-local: ## Simulate full Kaggle notebook locally: stage dataset then run all cells
+	@echo "--- Staging dataset: build wheel + copy data ---"
+	rm -rf /tmp/kaggle-sim/input/$(EXPERIMENT)-data
+	mkdir -p /tmp/kaggle-sim/input/$(EXPERIMENT)-data
+	uv build --wheel --out-dir /tmp/kaggle-sim/input/$(EXPERIMENT)-data 2>&1 | tail -1
+	cp $(DATA_DIR)/train.jsonl $(DATA_DIR)/eval.jsonl /tmp/kaggle-sim/input/$(EXPERIMENT)-data/
+	@echo "--- Running all notebook cells locally ---"
+	EXPERIMENT=$(EXPERIMENT) MODEL=$(MODEL) \
+	KAGGLE_INPUT_BASE=/tmp/kaggle-sim/input/$(EXPERIMENT)-data \
+		uv run python src/cli/run_notebook_local.py
+	@echo "--- Local Kaggle notebook simulation passed ---"
 
 request: ## Send a test /infer request to the running API server  (HOST/PORT to override)
 	curl -s -X POST http://$(HOST):$(PORT)/infer \
