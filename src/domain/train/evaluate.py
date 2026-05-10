@@ -22,9 +22,9 @@ def load_hf_pipeline(checkpoint: str) -> Any:
 
     use_cuda = torch.cuda.is_available()
     if use_cuda:
-        torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        model_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     else:
-        torch_dtype = torch.float32
+        model_dtype = torch.float32
 
     print(f"Loading HF checkpoint from {checkpoint} …")
     return pipeline(
@@ -34,7 +34,7 @@ def load_hf_pipeline(checkpoint: str) -> Any:
         temperature=0.1,
         do_sample=False,
         device=0 if use_cuda else -1,
-        torch_dtype=torch_dtype,
+        dtype=model_dtype,
     )
 
 

@@ -37,6 +37,12 @@ try:
 except ModuleNotFoundError:
     _DATASETS_AVAILABLE = False
 
+try:
+    from peft import LoraConfig, TaskType, get_peft_model
+    _PEFT_AVAILABLE = True
+except ModuleNotFoundError:
+    _PEFT_AVAILABLE = False
+
 MAX_LENGTH = 512
 DEFAULT_MODEL = "HuggingFaceTB/SmolLM2-360M"
 DEFAULT_TRAIN_DATA = "data/train.jsonl"
@@ -263,29 +269,79 @@ def train(
     else:
         load_dtype = None  # CPU / MPS: keep model's native dtype
 
-    dtype_label = "bfloat16" if use_bf16 else ("float16" if use_fp16 else "default")
-    print(f"Loading model from: {model}  dtype={dtype_label}")
-    hf_model = AutoModelForCausalLM.from_pretrained(
-        model, trust_remote_code=True, torch_dtype=load_dtype,
-        attn_implementation="eager",
-    )
-    # use_reentrant=False is more memory-efficient and avoids a deprecation warning
-    # in newer PyTorch; it recomputes activations using autograd rather than hooks.
-    hf_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    if use_cuda:
+        # Must be set before any CUDA allocation — including model loading.
+        os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
-    # Auto-reduce batch for large models when the user hasn't overridden it.
-    # >1B params: even with 8-bit Adam, batch=2 at seq_len=512 pushes a T4 to ~14 GB.
-    # Dropping to batch=1 (grad_accum=8) keeps peak memory under 12 GB.
-    n_params = sum(p.numel() for p in hf_model.parameters())
-    if batch_size is None and use_cuda and n_params > 1_000_000_000:
+    # Estimate parameter count from config before loading so we can choose the
+    # right loading strategy without wasting GPU memory on the wrong path.
+    # Formula: embedding table + transformer layers (rough but reliable enough).
+    _use_qlora = False
+    if use_cuda and _PEFT_AVAILABLE:
+        try:
+            from transformers import AutoConfig
+            _cfg = AutoConfig.from_pretrained(model, trust_remote_code=True)
+            _h = getattr(_cfg, "hidden_size", 0)
+            _L = getattr(_cfg, "num_hidden_layers", 0)
+            _V = getattr(_cfg, "vocab_size", 0)
+            _use_qlora = (_V * _h + _L * 12 * _h * _h) > 1_000_000_000
+        except Exception:
+            pass
+
+    if not _PEFT_AVAILABLE:
+        print("WARNING: peft not installed — full fine-tune only (install with: uv sync --extra train)")
+
+    _lora_cfg = LoraConfig(
+        task_type=TaskType.CAUSAL_LM,
+        r=8, lora_alpha=16, lora_dropout=0.05, bias="none",
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj"],
+    )
+
+    if _use_qlora:
+        # QLoRA: load base in 4-bit (0.85 GB for 1.7B vs 3.4 GB in fp16).
+        # prepare_model_for_kbit_training handles gradient checkpointing and
+        # input_require_grads in the correct order for quantised models.
+        from transformers import BitsAndBytesConfig
+        from peft import prepare_model_for_kbit_training
+        _bnb = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=load_dtype or torch.float16,
+        )
+        print(f"Loading model from: {model}  dtype=4-bit NF4 (QLoRA)")
+        hf_model = AutoModelForCausalLM.from_pretrained(
+            model, quantization_config=_bnb, device_map={"": 0},
+            trust_remote_code=True, attn_implementation="eager",
+        )
+        hf_model = prepare_model_for_kbit_training(hf_model, use_gradient_checkpointing=True)
+        hf_model = get_peft_model(hf_model, _lora_cfg)
+        use_lora = True
+    else:
+        dtype_label = "bfloat16" if use_bf16 else ("float16" if use_fp16 else "default")
+        print(f"Loading model from: {model}  dtype={dtype_label}")
+        hf_model = AutoModelForCausalLM.from_pretrained(
+            model, trust_remote_code=True, dtype=load_dtype,
+            attn_implementation="eager",
+        )
+        hf_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        use_lora = _PEFT_AVAILABLE
+        if use_lora:
+            print("Applying LoRA adapters …")
+            hf_model = get_peft_model(hf_model, _lora_cfg)
+            hf_model.enable_input_require_grads()
+
+    trainable = sum(p.numel() for p in hf_model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in hf_model.parameters())
+    print(f"Trainable params: {trainable/1e6:.1f}M / {total/1e9:.2f}B "
+          f"({'QLoRA' if _use_qlora else 'LoRA' if use_lora else 'full'})")
+
+    # Auto-reduce batch for large models when user hasn't overridden it.
+    if batch_size is None and use_cuda and total > 1_000_000_000:
         effective_batch = 1
         grad_accum = 8
-        print(f"Large model ({n_params/1e9:.1f}B params) — batch={effective_batch}, grad_accum={grad_accum}")
-
-    if use_cuda:
-        # Reduces fragmentation OOMs where PyTorch holds free memory but can't find a
-        # contiguous block. Safe to set always; ignored on CPU/MPS.
-        os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
+        print(f"Large model — batch={effective_batch}, grad_accum={grad_accum}")
 
     print(f"Loading training data from: {train_data}")
     train_records = load_jsonl(train_data)
@@ -353,7 +409,15 @@ def train(
 
     print("Starting training …")
     train_result = trainer.train()
-    trainer.save_model()
+
+    if use_lora:
+        # Merge adapter weights into the base model so the saved checkpoint is a
+        # standard HF model — no PEFT dependency needed for inference or export.
+        print("Merging LoRA adapters into base model …")
+        merged = trainer.model.merge_and_unload()
+        merged.save_pretrained(output_dir)
+    else:
+        trainer.save_model()
     tokenizer.save_pretrained(output_dir)
 
     eval_loss: float | None = None

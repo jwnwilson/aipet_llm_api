@@ -149,39 +149,54 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
 
     def _push_dataset(self, staging: Path) -> None:
         """Create the dataset on first run; add a new version on subsequent runs."""
-        try:
-            subprocess.run(
-                ["kaggle", "datasets", "create", "-p", str(staging), "--quiet"],
-                check=True,
-                capture_output=True,
-            )
-        except subprocess.CalledProcessError:
-            subprocess.run(
-                ["kaggle", "datasets", "version", "-p", str(staging), "-m", "update", "--quiet"],
-                check=True,
-            )
+        staged_files = [f.name for f in staging.iterdir() if f.is_file()]
+        print(f"Staged files for upload: {staged_files}", flush=True)
 
-    def _wait_for_dataset(self, dataset_ref: str, timeout: int = 300, interval: int = 10) -> None:
-        """Block until Kaggle has finished processing the dataset and the .whl is visible.
+        create_result = subprocess.run(
+            ["kaggle", "datasets", "create", "-p", str(staging)],
+            capture_output=True, text=True,
+        )
+        create_output = (create_result.stdout + create_result.stderr).strip()
+        dataset_exists = create_result.returncode != 0 or "error" in create_output.lower()
 
-        Kaggle processes uploaded files asynchronously — pushing the kernel immediately
-        after upload races against that processing and produces an empty mount dir.
-        """
-        print(f"Waiting for dataset {dataset_ref} to be ready …", flush=True)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            result = subprocess.run(
-                ["kaggle", "datasets", "files", dataset_ref, "--csv"],
+        if not dataset_exists:
+            print(f"Dataset created: {create_output}", flush=True)
+        else:
+            print(f"Dataset exists, uploading new version … ({create_output})", flush=True)
+            version_result = subprocess.run(
+                ["kaggle", "datasets", "version", "-p", str(staging), "-m", "update"],
                 capture_output=True, text=True,
             )
-            if result.returncode == 0 and ".whl" in result.stdout:
-                print("Dataset ready.", flush=True)
-                return
+            version_output = (version_result.stdout + version_result.stderr).strip()
+            if version_result.returncode != 0 or "error" in version_output.lower():
+                raise RuntimeError(f"Dataset version upload failed:\n{version_output}")
+            print(f"Dataset version uploaded: {version_output}", flush=True)
+
+    def _wait_for_dataset(self, dataset_ref: str, timeout: int = 300, interval: int = 15) -> None:
+        """Poll via the Kaggle Python API until a .whl is visible in the dataset."""
+        from kaggle.api.kaggle_api_extended import KaggleApi
+        api = KaggleApi()
+        api.authenticate()
+
+        print(f"Polling for .whl in dataset {dataset_ref} …", flush=True)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                response = api.dataset_list_files(dataset_ref)
+                if response and getattr(response, "files", None):
+                    names = [f.name for f in response.files]
+                    whl = [n for n in names if n.endswith(".whl")]
+                    if whl:
+                        print(f"Dataset ready — {whl[0]} visible.", flush=True)
+                        return
+                    print(f"  visible files: {names[:6]} — no .whl yet …", flush=True)
+                else:
+                    print("  no files visible yet …", flush=True)
+            except Exception as exc:
+                print(f"  poll error: {exc}", flush=True)
             time.sleep(interval)
-        raise TimeoutError(
-            f"Dataset {dataset_ref} did not become ready within {timeout}s. "
-            "Check the Kaggle dataset page for processing errors."
-        )
+
+        print(f"WARNING: .whl not confirmed in {dataset_ref} after {timeout}s — proceeding anyway.", flush=True)
 
     def _render_notebook(self, config: RemoteTrainConfig, kernel_dir: Path) -> None:
         template_path = Path(__file__).parent / "notebook_template.ipynb"

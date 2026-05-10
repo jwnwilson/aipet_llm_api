@@ -31,6 +31,7 @@ train = [
     "torch>=2.0",
     "accelerate>=1.1.0",
     "bitsandbytes>=0.43.0",
+    "peft>=0.9.0",
     "sentencepiece>=0.2.0",
     "kaggle>=1.6",
     "google-auth>=2.0",

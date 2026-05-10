@@ -43,7 +43,8 @@ train: ## Fine-tune the model  (DRY_RUN=1 for smoke test, DATA_DIR/OUTPUT_DIR to
 		$(if $(DRY_RUN),--dry-run) \
 		--train-data $(DATA_DIR)/train.jsonl \
 		--eval-data $(DATA_DIR)/eval.jsonl \
-		--output-dir $(OUTPUT_DIR)
+		--output-dir $(OUTPUT_DIR) \
+		--model $(MODEL)
 
 evaluate: ## Evaluate HF checkpoint response rate  (CHECKPOINT=... to override)
 	PYTHONPATH=src uv run python src/cli/evaluate.py \
