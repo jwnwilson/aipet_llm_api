@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make test *)",
+      "Bash(python -m pytest tests/unit/test_ports.py tests/unit/test_remote_adapters.py -v --tb=short)",
+      "Bash(python -m pytest tests/unit/test_remote_adapters.py::TestKaggleAdapterSubmit::test_calls_kernels_push -v --tb=long)",
+      "Bash(python -m pytest tests/unit/test_remote_adapters.py::TestKaggleAdapterSubmit::test_calls_kernels_push tests/unit/test_remote_adapters.py::TestColabAdapterStatus::test_done_content_maps_to_done -v --tb=short)",
+      "Bash(python -m pytest tests/unit/test_remote_adapters.py::TestKaggleAdapterStatus::test_complete_maps_to_done -v --tb=long)",
+      "Bash(python3 -c \"from temporalio.common import WorkflowIDReusePolicy; print\\([x for x in dir\\(WorkflowIDReusePolicy\\) if not x.startswith\\('_'\\)]\\)\")",
+      "Bash(python3 -c \"import temporalio; print\\(temporalio.__version__\\)\")",
+      "Bash(pip show *)",
+      "Bash(python -m pytest tests/unit/ -v --tb=short)",
+      "Bash(python3 -c \"from temporalio.common import WorkflowExecutionStatus; print\\(list\\(WorkflowExecutionStatus.__members__\\)\\)\")",
+      "Bash(echo \"exit:$?\")"
+    ]
+  }
+}

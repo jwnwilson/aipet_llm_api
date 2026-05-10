@@ -31,10 +31,19 @@ def _config(**kwargs) -> RemoteTrainConfig:
     return RemoteTrainConfig(**defaults)
 
 
-def _ok(stdout: str = "") -> MagicMock:
+def _ok(stdout: str = "", stderr: str = "") -> MagicMock:
     m = MagicMock()
     m.returncode = 0
     m.stdout = stdout
+    m.stderr = stderr
+    return m
+
+
+def _fail(stdout: str = "", stderr: str = "") -> MagicMock:
+    m = MagicMock()
+    m.returncode = 1
+    m.stdout = stdout
+    m.stderr = stderr
     return m
 
 
@@ -44,16 +53,28 @@ def _ok(stdout: str = "") -> MagicMock:
 
 
 class TestKaggleAdapterSubmit:
+    def _patch_no_wait(self, monkeypatch) -> None:
+        """Skip Kaggle-CLI detection and Python-API polling (not installed in dev)."""
+        monkeypatch.setattr(
+            "adapters.kaggle.adapter._kaggle_bin",
+            lambda: "kaggle",
+        )
+        monkeypatch.setattr(
+            "adapters.kaggle.adapter.KaggleTrainingAdapter._wait_for_dataset",
+            lambda *a, **kw: None,
+        )
+
     def test_calls_datasets_version_when_dataset_exists(self, tmp_path, monkeypatch):
-        import subprocess as _sp
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        self._patch_no_wait(monkeypatch)
 
         calls: list[list[str]] = []
 
         def fake_run(cmd, **kw):
             calls.append(list(cmd))
+            # Simulate "dataset already exists" by returning non-zero for create
             if "create" in cmd:
-                raise _sp.CalledProcessError(1, cmd)
+                return _fail()
             return _ok()
 
         monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
@@ -63,12 +84,13 @@ class TestKaggleAdapterSubmit:
         adapter.submit(_config())
 
         dataset_calls = [c for c in calls if "datasets" in c]
-        assert len(dataset_calls) == 2  # create (failed) + version
+        assert len(dataset_calls) == 2  # create (non-zero) + version
         assert "version" in dataset_calls[1]
         assert "-p" in dataset_calls[1]
 
     def test_calls_kernels_push(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        self._patch_no_wait(monkeypatch)
 
         calls: list[list[str]] = []
 
@@ -87,7 +109,7 @@ class TestKaggleAdapterSubmit:
 
     def test_returns_slug_with_username(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "myuser")
-
+        self._patch_no_wait(monkeypatch)
         monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
         from adapters.kaggle import KaggleTrainingAdapter
@@ -98,7 +120,7 @@ class TestKaggleAdapterSubmit:
 
     def test_renders_notebook_with_config(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-
+        self._patch_no_wait(monkeypatch)
         monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
         from adapters.kaggle import KaggleTrainingAdapter
@@ -114,7 +136,7 @@ class TestKaggleAdapterSubmit:
 
     def test_writes_kernel_metadata(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-
+        self._patch_no_wait(monkeypatch)
         monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
         from adapters.kaggle import KaggleTrainingAdapter
@@ -131,7 +153,7 @@ class TestKaggleAdapterSubmit:
 class TestKaggleAdapterStatus:
     def _status(self, stdout: str, monkeypatch, tmp_path) -> str:
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-
+        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
         monkeypatch.setattr(
             "adapters.kaggle.adapter.subprocess.run",
             lambda *a, **kw: _ok(stdout),
@@ -158,6 +180,7 @@ class TestKaggleAdapterStatus:
 class TestKaggleAdapterDownload:
     def test_calls_kernels_output(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
 
         calls: list[list[str]] = []
 
@@ -176,7 +199,7 @@ class TestKaggleAdapterDownload:
 
     def test_unpacks_archive_if_present(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-
+        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
         monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
         import tarfile
@@ -381,3 +404,290 @@ class TestTrainActivityRouting:
         config = TrainConfig(remote_backend="gcp")
         with pytest.raises(ApplicationError, match="Unknown remote_backend"):
             self._run(train_activity(config))
+
+    def test_colab_backend_routes_to_colab_adapter(self, monkeypatch):
+        import temporal.activities as acts
+
+        submitted: dict = {}
+
+        async def fake_remote(config, adapter):
+            submitted["adapter"] = type(adapter).__name__
+            from temporal.activities import CheckpointPath
+            return CheckpointPath(path="models/checkpoints")
+
+        monkeypatch.setattr(acts, "_train_remote", fake_remote)
+        monkeypatch.setattr(
+            "adapters.colab.adapter.ColabTrainingAdapter._build_drive_client",
+            lambda self: MagicMock(),
+        )
+
+        from temporal.activities import TrainConfig, train_activity
+        config = TrainConfig(remote_backend="colab")
+        self._run(train_activity(config))
+        assert submitted["adapter"] == "ColabTrainingAdapter"
+
+
+# ---------------------------------------------------------------------------
+# ColabTrainingAdapter helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_status_downloader(content: bytes):
+    """Returns a MediaIoBaseDownload drop-in that writes *content* into buf."""
+
+    class _FakeDownloader:
+        def __init__(self, buf, request):
+            buf.write(content)
+
+        def next_chunk(self):
+            return None, True
+
+    return _FakeDownloader
+
+
+# ---------------------------------------------------------------------------
+# ColabTrainingAdapter — submit
+# ---------------------------------------------------------------------------
+
+
+class TestColabAdapterSubmit:
+    def _make_adapter(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "adapters.colab.adapter.ColabTrainingAdapter._build_drive_client",
+            lambda self: MagicMock(),
+        )
+        from adapters.colab.adapter import ColabTrainingAdapter
+
+        adapter = ColabTrainingAdapter(work_dir=tmp_path)
+        drive = adapter._drive
+        drive.files().list().execute.return_value = {"files": []}
+        drive.files().create().execute.return_value = {"id": "fake-id"}
+        drive.files().update().execute.return_value = {}
+        return adapter
+
+    def _data_config(self, tmp_path, **kwargs) -> RemoteTrainConfig:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(exist_ok=True)
+        (data_dir / "train.jsonl").write_text('{"x":1}\n')
+        (data_dir / "eval.jsonl").write_text('{"x":2}\n')
+        return _config(
+            train_data=str(data_dir / "train.jsonl"),
+            eval_data=str(data_dir / "eval.jsonl"),
+            **kwargs,
+        )
+
+    def _patch_io(self, monkeypatch):
+        monkeypatch.setattr("adapters.colab.adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setattr("googleapiclient.http.MediaFileUpload", MagicMock)
+
+    def test_returns_non_empty_string_run_id(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        self._patch_io(monkeypatch)
+        run_id = adapter.submit(self._data_config(tmp_path))
+        assert isinstance(run_id, str) and run_id
+
+    def test_creates_folder_hierarchy_on_drive(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        self._patch_io(monkeypatch)
+        adapter.submit(self._data_config(tmp_path))
+
+        create_calls = adapter._drive.files.return_value.create.call_args_list
+        folder_creates = [
+            c for c in create_calls
+            if "application/vnd.google-apps.folder" in str(c)
+        ]
+        assert len(folder_creates) >= 2, "Expected ColabTraining root + experiment subfolder"
+
+    def test_renders_notebook_replacing_both_placeholders(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        self._patch_io(monkeypatch)
+        cfg = self._data_config(tmp_path, experiment_name="ph-test", epochs=5)
+        adapter.submit(cfg)
+
+        rendered = tmp_path / "ph-test" / "notebook.ipynb"
+        assert rendered.exists()
+        content = rendered.read_text()
+        assert "{{config}}" not in content, "{{config}} placeholder was not replaced"
+        assert "{{folder_id}}" not in content, "{{folder_id}} placeholder was not replaced"
+        assert "'epochs': 5" in content
+
+    def test_prints_colab_url_with_drive_link(self, tmp_path, monkeypatch, capsys):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        self._patch_io(monkeypatch)
+        adapter.submit(self._data_config(tmp_path))
+
+        captured = capsys.readouterr()
+        assert "colab.research.google.com/drive/" in captured.out
+
+    def test_uploads_notebook_ipynb_to_drive(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        self._patch_io(monkeypatch)
+        adapter.submit(self._data_config(tmp_path, experiment_name="nb-test"))
+
+        create_calls = adapter._drive.files.return_value.create.call_args_list
+        notebook_creates = [c for c in create_calls if "notebook.ipynb" in str(c)]
+        assert notebook_creates, "notebook.ipynb should be uploaded to Drive"
+
+
+# ---------------------------------------------------------------------------
+# ColabTrainingAdapter — status
+# ---------------------------------------------------------------------------
+
+
+class TestColabAdapterStatus:
+    def _make_adapter(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "adapters.colab.adapter.ColabTrainingAdapter._build_drive_client",
+            lambda self: MagicMock(),
+        )
+        from adapters.colab.adapter import ColabTrainingAdapter
+
+        return ColabTrainingAdapter(work_dir=tmp_path)
+
+    def test_returns_pending_when_no_status_file_in_drive(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        adapter._drive.files().list().execute.return_value = {"files": []}
+        assert adapter.status("folder-id") == "pending"
+
+    def test_running_content_maps_to_running(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        adapter._drive.files().list().execute.return_value = {"files": [{"id": "s-id"}]}
+        monkeypatch.setattr(
+            "googleapiclient.http.MediaIoBaseDownload",
+            _make_status_downloader(b"running"),
+        )
+        assert adapter.status("folder-id") == "running"
+
+    def test_done_content_maps_to_done(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        adapter._drive.files().list().execute.return_value = {"files": [{"id": "s-id"}]}
+        monkeypatch.setattr(
+            "googleapiclient.http.MediaIoBaseDownload",
+            _make_status_downloader(b"done"),
+        )
+        assert adapter.status("folder-id") == "done"
+
+    def test_failed_content_maps_to_failed(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        adapter._drive.files().list().execute.return_value = {"files": [{"id": "s-id"}]}
+        monkeypatch.setattr(
+            "googleapiclient.http.MediaIoBaseDownload",
+            _make_status_downloader(b"failed"),
+        )
+        assert adapter.status("folder-id") == "failed"
+
+    def test_unknown_content_defaults_to_pending(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        adapter._drive.files().list().execute.return_value = {"files": [{"id": "s-id"}]}
+        monkeypatch.setattr(
+            "googleapiclient.http.MediaIoBaseDownload",
+            _make_status_downloader(b"something-unexpected"),
+        )
+        assert adapter.status("folder-id") == "pending"
+
+
+# ---------------------------------------------------------------------------
+# ColabTrainingAdapter — download
+# ---------------------------------------------------------------------------
+
+
+class TestColabAdapterDownload:
+    def _make_adapter(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "adapters.colab.adapter.ColabTrainingAdapter._build_drive_client",
+            lambda self: MagicMock(),
+        )
+        from adapters.colab.adapter import ColabTrainingAdapter
+
+        return ColabTrainingAdapter(work_dir=tmp_path)
+
+    def _tar_bytes(self, tmp_path, **files: str) -> bytes:
+        """Return a .tar.gz archive containing the given filename→content pairs."""
+        import io as _io
+        import tarfile
+
+        buf = _io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            for name, content in files.items():
+                data = content.encode()
+                info = tarfile.TarInfo(name=name)
+                info.size = len(data)
+                tf.addfile(info, _io.BytesIO(data))
+        return buf.getvalue()
+
+    def test_raises_if_checkpoint_not_in_drive(self, tmp_path, monkeypatch):
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        adapter._drive.files().list().execute.return_value = {"files": []}
+        with pytest.raises(FileNotFoundError, match="checkpoint.tar.gz"):
+            adapter.download("folder-id", tmp_path / "dest")
+
+    def test_downloads_and_extracts_archive(self, tmp_path, monkeypatch):
+        archive_bytes = self._tar_bytes(tmp_path, **{"marker.txt": "hello"})
+
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        adapter._drive.files().list().execute.return_value = {"files": [{"id": "ckpt-id"}]}
+        monkeypatch.setattr(
+            "googleapiclient.http.MediaIoBaseDownload",
+            _make_status_downloader(archive_bytes),
+        )
+
+        dest = tmp_path / "dest"
+        adapter.download("folder-id", dest)
+
+        assert (dest / "marker.txt").exists(), "Extracted file should be present"
+        assert not (dest / "checkpoint.tar.gz").exists(), "Archive should be deleted after extract"
+
+    def test_returns_dest_as_string(self, tmp_path, monkeypatch):
+        archive_bytes = self._tar_bytes(tmp_path)
+
+        adapter = self._make_adapter(tmp_path, monkeypatch)
+        adapter._drive.files().list().execute.return_value = {"files": [{"id": "ckpt-id"}]}
+        monkeypatch.setattr(
+            "googleapiclient.http.MediaIoBaseDownload",
+            _make_status_downloader(archive_bytes),
+        )
+
+        dest = tmp_path / "dest"
+        result = adapter.download("folder-id", dest)
+        assert result == str(dest)
+
+
+# ---------------------------------------------------------------------------
+# Colab notebook template integrity
+# ---------------------------------------------------------------------------
+
+
+class TestColabNotebookTemplate:
+    @pytest.fixture
+    def template(self) -> dict:
+        import json
+        from pathlib import Path
+
+        path = Path(__file__).parents[2] / "src/adapters/colab/notebook_template.ipynb"
+        return json.loads(path.read_text())
+
+    def _all_source(self, template: dict) -> str:
+        return " ".join(
+            line
+            for cell in template["cells"]
+            for line in (
+                cell["source"] if isinstance(cell["source"], list) else [cell["source"]]
+            )
+        )
+
+    def test_template_is_valid_notebook_json(self, template):
+        assert "cells" in template
+        assert isinstance(template["cells"], list)
+        assert len(template["cells"]) > 0
+
+    def test_template_has_config_placeholder(self, template):
+        assert "{{config}}" in self._all_source(template)
+
+    def test_template_has_folder_id_placeholder(self, template):
+        assert "{{folder_id}}" in self._all_source(template)
+
+    def test_template_marks_done_on_success(self, template):
+        assert "update_status('done')" in self._all_source(template)
+
+    def test_template_marks_failed_on_training_error(self, template):
+        assert "update_status('failed')" in self._all_source(template)

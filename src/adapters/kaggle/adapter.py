@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 import time
 from pathlib import Path
@@ -13,6 +14,19 @@ from typing import Literal
 
 from domain.models import RemoteTrainConfig
 from domain.ports import RemoteTrainingPort
+
+def _kaggle_bin() -> str:
+    found = shutil.which("kaggle")
+    if found:
+        return found
+    candidate = Path(sys.executable).parent / "kaggle"
+    if candidate.exists():
+        return str(candidate)
+    raise FileNotFoundError(
+        "kaggle CLI not found in PATH or alongside Python interpreter. "
+        "Install with: uv sync --extra train"
+    )
+
 
 _STATUS_MAP: dict[str, str] = {
     "complete": "done",
@@ -78,7 +92,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         }
         (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
         subprocess.run(
-            ["kaggle", "kernels", "push", "-p", str(kernel_dir), "--accelerator", config.gpu_type],
+            [_kaggle_bin(), "kernels", "push", "-p", str(kernel_dir), "--accelerator", config.gpu_type],
             check=True,
         )
 
@@ -86,7 +100,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
 
     def status(self, run_id: str) -> Literal["pending", "running", "done", "failed"]:
         result = subprocess.run(
-            ["kaggle", "kernels", "status", run_id],
+            [_kaggle_bin(), "kernels", "status", run_id],
             capture_output=True,
             text=True,
             check=True,
@@ -100,7 +114,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
     def download(self, run_id: str, dest: Path) -> str:
         dest.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            ["kaggle", "kernels", "output", run_id, "-p", str(dest)],
+            [_kaggle_bin(), "kernels", "output", run_id, "-p", str(dest)],
             check=True,
         )
         archive = dest / "checkpoint.tar.gz"
@@ -153,7 +167,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         print(f"Staged files for upload: {staged_files}", flush=True)
 
         create_result = subprocess.run(
-            ["kaggle", "datasets", "create", "-p", str(staging)],
+            [_kaggle_bin(), "datasets", "create", "-p", str(staging)],
             capture_output=True, text=True,
         )
         create_output = (create_result.stdout + create_result.stderr).strip()
@@ -164,7 +178,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         else:
             print(f"Dataset exists, uploading new version … ({create_output})", flush=True)
             version_result = subprocess.run(
-                ["kaggle", "datasets", "version", "-p", str(staging), "-m", "update"],
+                [_kaggle_bin(), "datasets", "version", "-p", str(staging), "-m", "update"],
                 capture_output=True, text=True,
             )
             version_output = (version_result.stdout + version_result.stderr).strip()

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from collections import Counter
+from pathlib import Path
 
 try:
     import torch
@@ -382,6 +384,7 @@ def train(
             eval_strategy="steps", save_strategy="steps", logging_steps=50,
             load_best_model_at_end=True, metric_for_best_model="eval_loss",
             greater_is_better=False, report_to="none",
+            save_total_limit=2,
             per_device_train_batch_size=effective_batch,
             per_device_eval_batch_size=effective_batch,
             gradient_accumulation_steps=grad_accum,
@@ -420,6 +423,12 @@ def train(
         print("Merging LoRA adapters into base model …")
         merged = trainer.model.merge_and_unload()
         merged.save_pretrained(output_dir)
+        # Remove intermediate checkpoint-XXXX dirs — they held adapter-only weights
+        # that are now superseded by the merged model, freeing ~N×28MB.
+        for _d in Path(output_dir).iterdir():
+            if _d.is_dir() and _d.name.startswith("checkpoint-"):
+                shutil.rmtree(_d)
+                print(f"  Removed {_d.name}")
     else:
         trainer.save_model()
     tokenizer.save_pretrained(output_dir)

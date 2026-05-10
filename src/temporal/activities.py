@@ -107,6 +107,9 @@ def _make_remote_adapter(backend: str) -> RemoteTrainingPort:
     if backend == "ssh":
         from adapters.ssh_adapter import SshTrainingAdapter
         return SshTrainingAdapter()
+    if backend == "colab":
+        from adapters.colab.adapter import ColabTrainingAdapter
+        return ColabTrainingAdapter()
     raise ApplicationError(f"Unknown remote_backend: {backend!r}")
 
 
