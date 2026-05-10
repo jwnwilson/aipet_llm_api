@@ -315,7 +315,11 @@ def train(
             model, quantization_config=_bnb, device_map={"": 0},
             trust_remote_code=True, attn_implementation="eager",
         )
-        hf_model = prepare_model_for_kbit_training(hf_model, use_gradient_checkpointing=True)
+        hf_model = prepare_model_for_kbit_training(
+            hf_model,
+            use_gradient_checkpointing=True,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
+        )
         hf_model = get_peft_model(hf_model, _lora_cfg)
         use_lora = True
     else:
@@ -386,7 +390,7 @@ def train(
             weight_decay=0.01,
             fp16=use_fp16,
             bf16=use_bf16,
-            optim="adamw_bnb_8bit" if use_cuda else "adamw_torch",
+            optim="adamw_torch",
             use_cpu=no_mps and not use_cuda and not use_mps,
         )
 
