@@ -87,6 +87,7 @@ class TrainingPipelineWorkflow:
                     seed=config.seed,
                 ),
                 start_to_close_timeout=timedelta(minutes=30),
+                heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=_RETRY,
             )
 
@@ -104,6 +105,7 @@ class TrainingPipelineWorkflow:
                 experiment_name=config.experiment_name,
             ),
             start_to_close_timeout=timedelta(hours=6),
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=_NO_RETRY,
         )
 
@@ -114,6 +116,7 @@ class TrainingPipelineWorkflow:
                 eval_data=result.dataset_paths.eval,
             ),
             start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=_RETRY,
         )
 
@@ -124,6 +127,7 @@ class TrainingPipelineWorkflow:
                 export_activity,
                 result.checkpoint,
                 start_to_close_timeout=timedelta(hours=1),
+                heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=_NO_RETRY,
             )
             workflow.logger.info(

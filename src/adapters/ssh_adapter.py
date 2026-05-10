@@ -103,6 +103,14 @@ class SshTrainingAdapter(RemoteTrainingPort):
             return "done"
         return "failed"
 
+    def logs(self, run_id: str) -> str:  # noqa: ARG002
+        result = subprocess.run(
+            self._ssh_args() + [f"tail -n 50 {self._work_dir}/train.log"],
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
     def download(self, run_id: str, dest: Path) -> str:
         dest.mkdir(parents=True, exist_ok=True)
         remote = f"{self._user}@{self._host}"

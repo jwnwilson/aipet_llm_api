@@ -111,6 +111,14 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
                 return canonical  # type: ignore[return-value]
         return "pending"
 
+    def logs(self, run_id: str) -> str:
+        result = subprocess.run(
+            [_kaggle_bin(), "kernels", "status", run_id],
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
     def download(self, run_id: str, dest: Path) -> str:
         dest.mkdir(parents=True, exist_ok=True)
         subprocess.run(

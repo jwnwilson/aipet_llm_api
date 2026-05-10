@@ -58,3 +58,7 @@ class RemoteTrainingPort(ABC):
     @abstractmethod
     def download(self, run_id: str, dest: Path) -> str:
         """Fetch the trained checkpoint into ``dest`` and return the local path."""
+
+    def logs(self, run_id: str) -> str:  # noqa: ARG002
+        """Return recent log output for the running job (best-effort, may be empty)."""
+        return ""

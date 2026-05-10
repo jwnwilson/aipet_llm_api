@@ -195,6 +195,72 @@ def test_parse_valid_pct_returns_none_on_no_match():
     assert _parse_valid_pct("no match here") is None
 
 
+# ---------------------------------------------------------------------------
+# _train_remote polling loop
+# ---------------------------------------------------------------------------
+
+
+class TestTrainRemotePolling:
+    """Verify _train_remote calls logs() and sends a structured heartbeat each poll."""
+
+    def _make_adapter(self, statuses, log_output="step 10 loss=0.5", download_path="/tmp/ckpt"):
+        adapter = MagicMock()
+        adapter.submit.return_value = "run-42"
+        adapter.status.side_effect = list(statuses)
+        adapter.logs.return_value = log_output
+        adapter.download.return_value = download_path
+        return adapter
+
+    @pytest.mark.asyncio
+    async def test_calls_adapter_logs_each_poll(self, monkeypatch):
+        import temporal.activities as acts
+
+        adapter = self._make_adapter(["running", "done"])
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+
+        config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
+        with patch("temporal.activities.asyncio.sleep"):
+            await acts._train_remote(config, adapter)
+
+        assert adapter.logs.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_is_dict_with_status_elapsed_and_logs(self, monkeypatch):
+        import temporal.activities as acts
+
+        adapter = self._make_adapter(["running", "done"])
+        captured: list[dict] = []
+        monkeypatch.setattr(acts.activity, "heartbeat", lambda hb: captured.append(hb))
+        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+
+        config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
+        with patch("temporal.activities.asyncio.sleep"):
+            await acts._train_remote(config, adapter)
+
+        assert captured, "heartbeat should have been called"
+        first = captured[0]
+        assert isinstance(first, dict)
+        assert first["status"] == "running"
+        assert "elapsed_s" in first
+        assert first["logs"] == "step 10 loss=0.5"
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_logs_field_is_empty_when_adapter_returns_none(self, monkeypatch):
+        import temporal.activities as acts
+
+        adapter = self._make_adapter(["done"], log_output="")
+        captured: list[dict] = []
+        monkeypatch.setattr(acts.activity, "heartbeat", lambda hb: captured.append(hb))
+        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+
+        config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
+        with patch("temporal.activities.asyncio.sleep"):
+            await acts._train_remote(config, adapter)
+
+        assert captured[0]["logs"] == ""
+
+
 def test_parse_valid_pct_handles_multiline_output():
     output = "Loading model...\nValid: 180/200 (90.0%)  [FAIL]\nAction distribution:"
     assert abs(_parse_valid_pct(output) - 0.90) < 1e-6

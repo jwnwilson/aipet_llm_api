@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import sys
+import time
 from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -77,19 +78,33 @@ class GGUFPath:
 # ---------------------------------------------------------------------------
 
 
+async def _heartbeat_loop(stage: str, interval: int = 30) -> None:
+    """Send a liveness heartbeat every `interval` seconds while a blocking call runs."""
+    while True:
+        activity.heartbeat({"stage": stage})
+        await asyncio.sleep(interval)
+
+
 @activity.defn
 async def generate_dataset_activity(config: DatasetConfig) -> DatasetPaths:
     from domain.train.dataset import generate
 
+    loop = asyncio.get_event_loop()
+    heartbeat_task = asyncio.ensure_future(_heartbeat_loop("generate_dataset"))
     try:
-        ok = generate(
-            data_dir=Path(config.data_dir),
-            train_size=config.train_size,
-            eval_size=config.eval_size,
-            seed=config.seed,
+        ok = await loop.run_in_executor(
+            None,
+            lambda: generate(
+                data_dir=Path(config.data_dir),
+                train_size=config.train_size,
+                eval_size=config.eval_size,
+                seed=config.seed,
+            ),
         )
     except Exception as exc:
         raise ApplicationError(f"generate_dataset failed: {exc}") from exc
+    finally:
+        heartbeat_task.cancel()
 
     if not ok:
         raise ApplicationError("Dataset generation failed: invalid examples or distribution out of bounds")
@@ -127,18 +142,25 @@ async def train_activity(config: TrainConfig) -> CheckpointPath:
 async def _train_local(config: TrainConfig) -> CheckpointPath:
     from domain.train.trainer import train
 
+    loop = asyncio.get_event_loop()
+    heartbeat_task = asyncio.ensure_future(_heartbeat_loop("train_local"))
     try:
-        train(
-            model=config.model,
-            train_data=config.train_data,
-            eval_data=config.eval_data,
-            output_dir=config.output_dir,
-            epochs=config.epochs,
-            patience=config.patience,
-            warmup_ratio=config.warmup_ratio,
+        await loop.run_in_executor(
+            None,
+            lambda: train(
+                model=config.model,
+                train_data=config.train_data,
+                eval_data=config.eval_data,
+                output_dir=config.output_dir,
+                epochs=config.epochs,
+                patience=config.patience,
+                warmup_ratio=config.warmup_ratio,
+            ),
         )
     except Exception as exc:
         raise ApplicationError(f"train failed: {exc}") from exc
+    finally:
+        heartbeat_task.cancel()
 
     return CheckpointPath(path=config.output_dir)
 
@@ -163,14 +185,28 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
 
     activity.logger.info("Remote job submitted: adapter=%s run_id=%s", type(adapter).__name__, run_id)
 
+    started_at = time.time()
     while True:
         try:
             status = adapter.status(run_id)
         except Exception as exc:
             raise ApplicationError(f"Remote status check failed: {exc}") from exc
 
-        activity.heartbeat(status)
-        activity.logger.info("Remote status: adapter=%s run_id=%s status=%s", type(adapter).__name__, run_id, status)
+        elapsed_s = int(time.time() - started_at)
+        logs = adapter.logs(run_id)
+
+        if logs:
+            activity.logger.info(
+                "Training progress [%s] elapsed=%ds:\n%s",
+                type(adapter).__name__, elapsed_s, logs,
+            )
+        else:
+            activity.logger.info(
+                "Remote status: adapter=%s run_id=%s status=%s elapsed=%ds",
+                type(adapter).__name__, run_id, status, elapsed_s,
+            )
+
+        activity.heartbeat({"status": status, "elapsed_s": elapsed_s, "logs": logs})
 
         if status == "done":
             dest = Path(config.output_dir)
@@ -192,13 +228,19 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
 async def evaluate_activity(config: EvalConfig) -> EvalResult:
     from domain.train.evaluate import evaluate, infer_hf, load_hf_pipeline
 
+    loop = asyncio.get_event_loop()
+    heartbeat_task = asyncio.ensure_future(_heartbeat_loop("evaluate"))
     try:
         pipe = load_hf_pipeline(config.checkpoint)
         infer_fn = lambda prompt: infer_hf(pipe, prompt)  # noqa: E731
 
         buf = io.StringIO()
-        with redirect_stdout(buf):
-            exit_code = evaluate(Path(config.eval_data), infer_fn)
+
+        def _run() -> int:
+            with redirect_stdout(buf):
+                return evaluate(Path(config.eval_data), infer_fn)
+
+        exit_code = await loop.run_in_executor(None, _run)
 
         output = buf.getvalue()
         valid_pct = _parse_valid_pct(output)
@@ -207,6 +249,8 @@ async def evaluate_activity(config: EvalConfig) -> EvalResult:
             valid_pct = 1.0 if passed else 0.0
     except Exception as exc:
         raise ApplicationError(f"evaluate failed: {exc}") from exc
+    finally:
+        heartbeat_task.cancel()
 
     return EvalResult(valid_pct=valid_pct, passed=passed)
 
@@ -227,12 +271,19 @@ def _parse_valid_pct(output: str) -> float | None:
 async def export_activity(checkpoint: CheckpointPath) -> GGUFPath:
     from domain.train.export import export as export_gguf
 
+    loop = asyncio.get_event_loop()
     output_path = Path("models/aipet.gguf")
+    heartbeat_task = asyncio.ensure_future(_heartbeat_loop("export"))
     try:
-        export_gguf(checkpoint=Path(checkpoint.path), output=output_path)
+        await loop.run_in_executor(
+            None,
+            lambda: export_gguf(checkpoint=Path(checkpoint.path), output=output_path),
+        )
     except SystemExit as exc:
         raise ApplicationError(f"export failed: llama.cpp setup issue (exit {exc.code})") from exc
     except Exception as exc:
         raise ApplicationError(f"export failed: {exc}") from exc
+    finally:
+        heartbeat_task.cancel()
 
     return GGUFPath(path=str(output_path))

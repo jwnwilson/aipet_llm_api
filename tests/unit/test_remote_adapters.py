@@ -218,6 +218,43 @@ class TestKaggleAdapterDownload:
         assert (dest / "marker.txt").exists(), "Archive contents should be extracted"
 
 
+class TestKaggleAdapterLogs:
+    def test_returns_kernels_status_output(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+
+        def fake_run(cmd, **kw):
+            return _ok('testuser/exp has status "running"')
+
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
+        from adapters.kaggle import KaggleTrainingAdapter
+        result = KaggleTrainingAdapter(work_dir=tmp_path).logs("testuser/exp")
+
+        assert "running" in result
+
+    def test_calls_kernels_status_command(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kw):
+            calls.append(list(cmd))
+            return _ok()
+
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
+        from adapters.kaggle import KaggleTrainingAdapter
+        KaggleTrainingAdapter(work_dir=tmp_path).logs("testuser/exp")
+
+        assert any("status" in c for cmd in calls for c in cmd)
+
+    def test_returns_empty_string_when_no_output(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok(""))
+        from adapters.kaggle import KaggleTrainingAdapter
+        assert KaggleTrainingAdapter(work_dir=tmp_path).logs("testuser/exp") == ""
+
+
 # ---------------------------------------------------------------------------
 # SshTrainingAdapter
 # ---------------------------------------------------------------------------
@@ -331,6 +368,42 @@ class TestSshAdapterDownload:
         assert rsync_calls, "Expected rsync to download checkpoint"
         assert "checkpoints" in " ".join(rsync_calls[-1])
         assert result == str(tmp)
+
+
+class TestSshAdapterLogs:
+    def _make_adapter(self, monkeypatch):
+        monkeypatch.setenv("REMOTE_HOST", "gpu.example.com")
+        monkeypatch.setenv("REMOTE_USER", "ubuntu")
+        monkeypatch.setenv("REMOTE_KEY_PATH", "")
+        monkeypatch.setenv("REMOTE_WORK_DIR", "/app")
+        from adapters.ssh_adapter import SshTrainingAdapter
+        return SshTrainingAdapter()
+
+    def test_returns_remote_log_output(self, monkeypatch):
+        adapter = self._make_adapter(monkeypatch)
+        monkeypatch.setattr(
+            "adapters.ssh_adapter.subprocess.run",
+            lambda *a, **kw: _ok("step 10/200 loss=1.23\nstep 20/200 loss=1.10"),
+        )
+        result = adapter.logs("aipet-my-exp")
+        assert "loss=1.23" in result
+
+    def test_ssh_command_tails_train_log(self, monkeypatch):
+        adapter = self._make_adapter(monkeypatch)
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kw):
+            calls.append(list(cmd))
+            return _ok()
+
+        monkeypatch.setattr("adapters.ssh_adapter.subprocess.run", fake_run)
+        adapter.logs("aipet-my-exp")
+
+        ssh_calls = [c for c in calls if "ssh" in c]
+        assert ssh_calls, "Expected an SSH call"
+        cmd_str = " ".join(ssh_calls[-1])
+        assert "tail" in cmd_str
+        assert "train.log" in cmd_str
 
 
 # ---------------------------------------------------------------------------
