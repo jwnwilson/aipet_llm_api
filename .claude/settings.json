@@ -12,7 +12,8 @@
       "Bash(python -m pytest tests/unit/ -v --tb=short)",
       "Bash(python3 -c \"from temporalio.common import WorkflowExecutionStatus; print\\(list\\(WorkflowExecutionStatus.__members__\\)\\)\")",
       "Bash(echo \"exit:$?\")",
-      "Read(//private/tmp/claude-501/-Users-noel-projects-aipet_llm/f83c5126-c6b0-49bd-9ec7-4bcc6e47e37f/tasks/**)"
+      "Read(//private/tmp/claude-501/-Users-noel-projects-aipet_llm/f83c5126-c6b0-49bd-9ec7-4bcc6e47e37f/tasks/**)",
+      "Bash(xargs ls *)"
     ]
   }
 }

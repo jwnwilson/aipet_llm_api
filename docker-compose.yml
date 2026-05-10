@@ -68,7 +68,7 @@ services:
     build:
       context: .
     image: aipet-llm:latest
-    command: python -m src.temporal.worker
+    command: python -m temporal.worker
     environment:
       TEMPORAL_HOST: temporal:7233
       # Kaggle remote training (optional — leave empty to disable)

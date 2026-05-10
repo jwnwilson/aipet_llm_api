@@ -14,9 +14,28 @@ env:
   ECR_REPOSITORY: aipet-llm
 
 jobs:
-  build-and-deploy:
+  # ── Gate: tests must pass before we build ─────────────────────────────────
+  test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-caching: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run unit and CLI tests
+        run: uv run pytest tests/unit/ tests/cli/ -v
+
+  # ── Build: push ARM64 image to ECR ────────────────────────────────────────
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,15 +66,42 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Deploy to Kubernetes
-        env:
-          IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+      - name: Export image ref
+        id: image
         run: |
-          # KUBECONFIG secret: base64-encoded contents of ~/.kube/config for your cluster.
-          # For EKS clusters, replace this block with:
-          #   aws eks update-kubeconfig --name <cluster-name> --region $AWS_REGION
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > /tmp/kubeconfig
-          export KUBECONFIG=/tmp/kubeconfig
+          echo "image=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-          kubectl set image deployment/aipet-llm aipet-llm=$IMAGE
+  # ── Deploy: apply manifests on the local k3s cluster ──────────────────────
+  # Requires a self-hosted runner on the k3s host with kubectl configured.
+  # Setup: see docs/plan.md or the CI/CD plan for runner installation steps.
+  deploy:
+    needs: build
+    runs-on: [self-hosted, k3s]
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refresh ECR pull credentials in k8s
+        run: |
+          AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+            kubectl create secret docker-registry ecr-credentials \
+              --docker-server=${AWS_ACCOUNT}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com \
+              --docker-username=AWS \
+              --docker-password-stdin \
+              --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply k8s manifests
+        run: kubectl apply -f infra/k8s/
+
+      - name: Update API image
+        run: kubectl set image deployment/aipet-llm aipet-llm=$IMAGE
+
+      - name: Update Temporal worker image
+        run: kubectl set image deployment/temporal-worker temporal-worker=$IMAGE
+
+      - name: Wait for rollouts
+        run: |
           kubectl rollout status deployment/aipet-llm --timeout=300s
+          kubectl rollout status deployment/temporal-worker --timeout=300s
