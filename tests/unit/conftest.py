@@ -1,9 +1,8 @@
-"""Unit-test fixtures and sys.modules stubs for optional train-time packages.
+"""Unit-test fixtures and sys.modules stubs for heavyweight train-time packages.
 
-kaggle and google-api-python-client are declared in [train] optional deps and
-are not installed in the base dev environment.  We stub them here so that unit
-tests can import the adapter modules and monkeypatch individual symbols without
-needing a full `uv sync --extra train`.
+kaggle and google-api-python-client require credentials/network to initialise.
+We stub them here so that unit tests can import the adapter modules and
+monkeypatch individual symbols without side effects.
 """
 
 from __future__ import annotations

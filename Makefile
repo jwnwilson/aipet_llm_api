@@ -7,13 +7,13 @@ OUTPUT_DIR  ?= models/checkpoints
 IMAGE       ?= aipet-llm
 RPI_HOST    ?= raspberrypi.local
 
-EXPERIMENT      ?= experiment-01
+EXPERIMENT      ?= aipet-v1
 EPOCHS          ?= 5
 PATIENCE        ?= 3
 REMOTE_BACKEND  ?= kaggle
 MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 
-.PHONY: serve test test-unit test-integration test-cli data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger kaggle-train help
+.PHONY: serve test test-unit test-integration test-cli test-all data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger kaggle-train help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -23,17 +23,20 @@ serve: ## Start the FastAPI server  (MODEL_PATH=... make serve)
 	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run uvicorn api.app:app \
 		--host $(HOST) --port $(PORT) --reload
 
-test: ## Run all tests
-	uv run pytest tests/ -v
+test: ## Run unit + CLI tests (fast; excludes integration)
+	uv run pytest tests/unit/ tests/cli/ -v
 
 test-unit: ## Run unit tests only
 	uv run pytest tests/unit/ -v
 
-test-integration: ## Run integration tests only
+test-integration: ## Run integration tests only (requires models/aipet.gguf)
 	uv run pytest tests/integration/ -v
 
 test-cli: ## Run CLI tests only
 	uv run pytest tests/cli/ -v
+
+test-all: ## Run all tests including slow integration tests
+	uv run pytest tests/ -v
 
 data: ## Generate synthetic training + eval data  (DATA_DIR=... to override output path)
 	PYTHONPATH=src uv run python src/cli/generate_dataset.py --data-dir $(DATA_DIR)

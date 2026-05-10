@@ -18,7 +18,7 @@ def load_hf_pipeline(checkpoint: str) -> Any:
         import torch
         from transformers import pipeline
     except ImportError as exc:
-        raise ImportError("Install with: uv sync --extra train") from exc
+        raise ImportError("Install with: uv sync") from exc
 
     use_cuda = torch.cuda.is_available()
     if use_cuda:

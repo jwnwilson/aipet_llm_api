@@ -18,15 +18,6 @@ from domain.models import InferenceResponse
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def _torch_available() -> bool:
-    try:
-        import torch  # noqa: F401
-        import transformers  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -87,7 +78,6 @@ class TestGenerateDatasetCli:
 # train CLI  (dry-run only; skipped when torch/transformers not installed)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(not _torch_available(), reason="torch/transformers not installed")
 class TestTrainCli:
     def test_dry_run_exits_0(self, data_dir: Path, tmp_path: Path) -> None:
         from cli.train import main
@@ -219,7 +209,6 @@ class TestMakefile:
         assert (tmp_path / "train.jsonl").exists()
         assert (tmp_path / "eval.jsonl").exists()
 
-    @pytest.mark.skipif(not _torch_available(), reason="torch/transformers not installed")
     def test_train_dry_run_cli(self, tmp_path: Path) -> None:
         """Runs the same command make train DRY_RUN=1 invokes."""
         env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src")}

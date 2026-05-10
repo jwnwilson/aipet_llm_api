@@ -24,7 +24,7 @@ def _kaggle_bin() -> str:
         return str(candidate)
     raise FileNotFoundError(
         "kaggle CLI not found in PATH or alongside Python interpreter. "
-        "Install with: uv sync --extra train"
+        "Install with: uv sync"
     )
 
 

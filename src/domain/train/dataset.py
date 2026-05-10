@@ -233,10 +233,15 @@ def generate_examples(n: int, rng: random.Random) -> list[dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 
+_DISTRIBUTION_MIN_SAMPLES = 50
+
+
 def check_dataset_distribution(path: Path) -> None:
     """Print per-action counts and raise AssertionError if any action is under/over represented.
 
     Thresholds: no action < 5% or > 25% of total labelled examples.
+    Skipped when the dataset has fewer than _DISTRIBUTION_MIN_SAMPLES examples — the bounds
+    are statistically meaningless at tiny sizes (e.g. 2/5 = 40% with just 5 samples).
     """
     counts: Counter[str] = Counter()
     total = 0
@@ -254,6 +259,14 @@ def check_dataset_distribution(path: Path) -> None:
                 pass
 
     print(f"\nAction distribution in {path.name} (n={total}):")
+
+    if total < _DISTRIBUTION_MIN_SAMPLES:
+        for action in sorted(counts):
+            pct = counts[action] / total if total else 0
+            print(f"  {action:<12} {counts[action]:5d}  ({pct:.1%})")
+        print(f"  (distribution check skipped — need ≥ {_DISTRIBUTION_MIN_SAMPLES} examples)")
+        return
+
     violations: list[str] = []
     for action in sorted(counts):
         pct = counts[action] / total if total else 0

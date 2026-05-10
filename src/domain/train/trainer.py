@@ -88,7 +88,7 @@ def compute_sample_weights(records: list[dict]) -> list[float]:
 def build_hf_dataset(records: list[dict], tokenizer, max_length: int = MAX_LENGTH) -> "Dataset":
     """Tokenise prompt+completion pairs with prompt tokens masked in labels."""
     if not _DATASETS_AVAILABLE:
-        raise ImportError("Install with: uv sync --extra train")
+        raise ImportError("Install with: uv sync")
 
     all_input_ids: list[list[int]] = []
     all_attention_masks: list[list[int]] = []
@@ -152,29 +152,42 @@ class _ActionQualityCallback(TrainerCallback):
         correct = 0
         total = 0
 
+        prompts: list[str] = []
+        expected_actions: list[str] = []
         for record in self._records:
-            prompt = record["prompt"]
             try:
-                expected_action = json.loads(record["completion"]).get("action", "")
+                expected_actions.append(json.loads(record["completion"]).get("action", ""))
+                prompts.append(record["prompt"])
             except Exception:
                 continue
 
-            inputs = self._tokenizer(prompt, return_tensors="pt")
-            if _TORCH_AVAILABLE:
-                device = next(model.parameters()).device
-                inputs = {k: v.to(device) for k, v in inputs.items()}
+        if not prompts:
+            return
 
-            with torch.no_grad():
-                generated = model.generate(
-                    inputs["input_ids"],
-                    attention_mask=inputs.get("attention_mask"),
-                    max_new_tokens=64,
-                    do_sample=False,
-                    pad_token_id=self._tokenizer.eos_token_id,
-                )
-            new_tokens = generated[0][inputs["input_ids"].shape[1]:]
+        # Batch all prompts in one generate call — left-pad so sequences are
+        # right-aligned and the model attends to the correct tokens.
+        orig_padding_side = self._tokenizer.padding_side
+        self._tokenizer.padding_side = "left"
+        inputs = self._tokenizer(prompts, return_tensors="pt", padding=True, truncation=True)
+        self._tokenizer.padding_side = orig_padding_side
+
+        if _TORCH_AVAILABLE:
+            device = next(model.parameters()).device
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            generated = model.generate(
+                inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+                max_new_tokens=64,
+                do_sample=False,
+                pad_token_id=self._tokenizer.eos_token_id,
+            )
+
+        prompt_len = inputs["input_ids"].shape[1]
+        for i, expected_action in enumerate(expected_actions):
+            new_tokens = generated[i][prompt_len:]
             raw = self._tokenizer.decode(new_tokens, skip_special_tokens=True)
-
             try:
                 resp = parse_response(raw)
                 predicted = resp.action.value
@@ -211,12 +224,15 @@ class _WeightedTrainer(Trainer):
             num_samples=len(self.train_dataset),
             replacement=True,
         )
+        # MPS and CPU cannot share tensors across worker processes;
+        # num_workers > 0 only makes sense on CUDA.
+        num_workers = 2 if (torch.cuda.is_available() and not self.args.no_cuda) else 0
         return DataLoader(
             self.train_dataset,
             batch_size=self.args.per_device_train_batch_size,
             sampler=sampler,
             collate_fn=self.data_collator,
-            num_workers=0,
+            num_workers=num_workers,
         )
 
 
@@ -233,9 +249,9 @@ def train(
     no_mps: bool = False,
 ) -> None:
     if not _TORCH_AVAILABLE:
-        raise ImportError("PyTorch not installed. Run: uv sync --extra train")
+        raise ImportError("PyTorch not installed. Run: uv sync")
     if not _TRANSFORMERS_AVAILABLE:
-        raise ImportError("transformers not installed. Run: uv sync --extra train")
+        raise ImportError("transformers not installed. Run: uv sync")
 
     use_cuda = torch.cuda.is_available()
     use_mps = (
@@ -291,7 +307,7 @@ def train(
             pass
 
     if not _PEFT_AVAILABLE:
-        print("WARNING: peft not installed — full fine-tune only (install with: uv sync --extra train)")
+        print("WARNING: peft not installed — full fine-tune only (install with: uv sync)")
 
     _lora_cfg = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -344,9 +360,10 @@ def train(
           f"({'QLoRA' if _use_qlora else 'LoRA' if use_lora else 'full'})")
 
     # Auto-reduce batch for large models when user hasn't overridden it.
+    # QLoRA keeps the base in 4-bit (~0.85 GB for 1.7B), so batch=4 fits on a T4.
     if batch_size is None and use_cuda and total > 1_000_000_000:
-        effective_batch = 1
-        grad_accum = 8
+        effective_batch = 4 if _use_qlora else 1
+        grad_accum = 2 if _use_qlora else 8
         print(f"Large model — batch={effective_batch}, grad_accum={grad_accum}")
 
     print(f"Loading training data from: {train_data}")
@@ -386,7 +403,7 @@ def train(
             greater_is_better=False, report_to="none",
             save_total_limit=2,
             per_device_train_batch_size=effective_batch,
-            per_device_eval_batch_size=effective_batch,
+            per_device_eval_batch_size=8 if use_cuda else effective_batch,
             gradient_accumulation_steps=grad_accum,
             warmup_ratio=warmup_ratio,
             lr_scheduler_type="cosine",
