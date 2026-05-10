@@ -15,9 +15,16 @@ PASS_THRESHOLD = 0.95
 
 def load_hf_pipeline(checkpoint: str) -> Any:
     try:
+        import torch
         from transformers import pipeline
     except ImportError as exc:
         raise ImportError("Install with: uv sync --extra train") from exc
+
+    use_cuda = torch.cuda.is_available()
+    if use_cuda:
+        torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    else:
+        torch_dtype = torch.float32
 
     print(f"Loading HF checkpoint from {checkpoint} …")
     return pipeline(
@@ -26,6 +33,8 @@ def load_hf_pipeline(checkpoint: str) -> Any:
         max_new_tokens=128,
         temperature=0.1,
         do_sample=False,
+        device=0 if use_cuda else -1,
+        torch_dtype=torch_dtype,
     )
 
 

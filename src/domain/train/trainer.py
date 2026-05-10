@@ -113,9 +113,10 @@ def build_hf_dataset(records: list[dict], tokenizer, max_length: int = MAX_LENGT
         all_attention_masks.append(attention_mask)
         all_labels.append(labels)
 
-    dataset = Dataset.from_dict({"input_ids": all_input_ids, "attention_mask": all_attention_masks, "labels": all_labels})
-    dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
-    return dataset
+    # No set_format — keep as Python lists so DataCollatorForSeq2Seq can pad and
+    # convert to tensors in one step. Converting to torch first then back through
+    # numpy for padding produces the "list of numpy.ndarrays is extremely slow" warning.
+    return Dataset.from_dict({"input_ids": all_input_ids, "attention_mask": all_attention_masks, "labels": all_labels})
 
 
 class _ActionQualityCallback(TrainerCallback):
@@ -250,17 +251,41 @@ def train(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # MPS has hardware optimisations; float16 adds instability rather than saving memory.
-    load_dtype = None
-    print(f"Loading model from: {model}" + (f"  dtype=float16" if use_mps else ""))
+    # Match load dtype to the training precision so the fp16/bf16 gradient scaler
+    # never sees a tensor in the wrong dtype (e.g. bfloat16 model + fp16 scaler → crash).
+    # T4 and older (SM<8.0) lack hardware bf16 support; use fp16 there instead.
+    use_bf16 = use_cuda and torch.cuda.is_bf16_supported()
+    use_fp16 = use_cuda and not use_bf16
+    if use_bf16:
+        load_dtype = torch.bfloat16
+    elif use_fp16:
+        load_dtype = torch.float16
+    else:
+        load_dtype = None  # CPU / MPS: keep model's native dtype
+
+    dtype_label = "bfloat16" if use_bf16 else ("float16" if use_fp16 else "default")
+    print(f"Loading model from: {model}  dtype={dtype_label}")
     hf_model = AutoModelForCausalLM.from_pretrained(
         model, trust_remote_code=True, torch_dtype=load_dtype,
         attn_implementation="eager",
     )
-    # Gradient checkpointing trades compute for memory — on by default for non-CUDA
-    # devices where RAM is the binding constraint.
-    if not use_cuda:
-        hf_model.gradient_checkpointing_enable()
+    # use_reentrant=False is more memory-efficient and avoids a deprecation warning
+    # in newer PyTorch; it recomputes activations using autograd rather than hooks.
+    hf_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+    # Auto-reduce batch for large models when the user hasn't overridden it.
+    # >1B params: even with 8-bit Adam, batch=2 at seq_len=512 pushes a T4 to ~14 GB.
+    # Dropping to batch=1 (grad_accum=8) keeps peak memory under 12 GB.
+    n_params = sum(p.numel() for p in hf_model.parameters())
+    if batch_size is None and use_cuda and n_params > 1_000_000_000:
+        effective_batch = 1
+        grad_accum = 8
+        print(f"Large model ({n_params/1e9:.1f}B params) — batch={effective_batch}, grad_accum={grad_accum}")
+
+    if use_cuda:
+        # Reduces fragmentation OOMs where PyTorch holds free memory but can't find a
+        # contiguous block. Safe to set always; ignored on CPU/MPS.
+        os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
     print(f"Loading training data from: {train_data}")
     train_records = load_jsonl(train_data)
@@ -303,7 +328,9 @@ def train(
             warmup_ratio=warmup_ratio,
             lr_scheduler_type="cosine",
             weight_decay=0.01,
-            fp16=use_cuda,
+            fp16=use_fp16,
+            bf16=use_bf16,
+            optim="adamw_bnb_8bit" if use_cuda else "adamw_torch",
             use_cpu=no_mps and not use_cuda and not use_mps,
         )
 

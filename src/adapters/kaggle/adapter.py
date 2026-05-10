@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -57,6 +58,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         staging = self._work_dir / dataset_slug
         self._stage_dataset(config, staging, dataset_slug)
         self._push_dataset(staging)
+        self._wait_for_dataset(dataset_ref)
 
         kernel_dir = self._work_dir / config.experiment_name
         kernel_dir.mkdir(parents=True, exist_ok=True)
@@ -75,7 +77,10 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             "dataset_sources": [dataset_ref],
         }
         (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
-        subprocess.run(["kaggle", "kernels", "push", "-p", str(kernel_dir)], check=True)
+        subprocess.run(
+            ["kaggle", "kernels", "push", "-p", str(kernel_dir), "--accelerator", config.gpu_type],
+            check=True,
+        )
 
         return slug
 
@@ -155,6 +160,28 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
                 ["kaggle", "datasets", "version", "-p", str(staging), "-m", "update", "--quiet"],
                 check=True,
             )
+
+    def _wait_for_dataset(self, dataset_ref: str, timeout: int = 300, interval: int = 10) -> None:
+        """Block until Kaggle has finished processing the dataset and the .whl is visible.
+
+        Kaggle processes uploaded files asynchronously — pushing the kernel immediately
+        after upload races against that processing and produces an empty mount dir.
+        """
+        print(f"Waiting for dataset {dataset_ref} to be ready …", flush=True)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            result = subprocess.run(
+                ["kaggle", "datasets", "files", dataset_ref, "--csv"],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0 and ".whl" in result.stdout:
+                print("Dataset ready.", flush=True)
+                return
+            time.sleep(interval)
+        raise TimeoutError(
+            f"Dataset {dataset_ref} did not become ready within {timeout}s. "
+            "Check the Kaggle dataset page for processing errors."
+        )
 
     def _render_notebook(self, config: RemoteTrainConfig, kernel_dir: Path) -> None:
         template_path = Path(__file__).parent / "notebook_template.ipynb"

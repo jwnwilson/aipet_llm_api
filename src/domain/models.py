@@ -46,5 +46,6 @@ class RemoteTrainConfig(BaseModel):
     patience: int
     warmup_ratio: float
     experiment_name: str
+    gpu_type: str = "NvidiaTeslaT4"
 
 
