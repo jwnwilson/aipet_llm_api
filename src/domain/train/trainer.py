@@ -226,7 +226,7 @@ class _WeightedTrainer(Trainer):
         )
         # MPS and CPU cannot share tensors across worker processes;
         # num_workers > 0 only makes sense on CUDA.
-        num_workers = 2 if (torch.cuda.is_available() and not self.args.no_cuda) else 0
+        num_workers = 2 if torch.cuda.is_available() else 0
         return DataLoader(
             self.train_dataset,
             batch_size=self.args.per_device_train_batch_size,
