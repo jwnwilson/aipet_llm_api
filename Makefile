@@ -7,11 +7,12 @@ OUTPUT_DIR  ?= models/checkpoints
 IMAGE       ?= aipet-llm
 RPI_HOST    ?= raspberrypi.local
 
-EXPERIMENT      ?= aipet-v1
+EXPERIMENT      ?= aipet-v2
 EPOCHS          ?= 5
 PATIENCE        ?= 3
 REMOTE_BACKEND  ?= kaggle
 MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
+# MODEL           ?= HuggingFaceTB/SmolLM2-360M
 
 .PHONY: serve test test-unit test-integration test-cli test-all data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger kaggle-train help
 
