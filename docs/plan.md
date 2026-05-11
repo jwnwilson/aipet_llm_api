@@ -4,185 +4,6 @@
 
 ---
 
-## EPIC-1: Run Training Locally with Kaggle GPU
-
-> The Temporal workflow and Kaggle adapter are built. This epic covers standing up the local environment and running an end-to-end training experiment on a free Kaggle GPU.
-
-**Prerequisites:**
-- Kaggle account with phone verification (required for GPU access)
-- `kaggle` CLI: `uv add kaggle` or `pip install kaggle`
-- Docker Desktop running (for Temporal server)
-
----
-
-### Feature 1.1 — Kaggle credentials
-
-#### TASK-1.1.1 — Create Kaggle API key
-1. Go to kaggle.com → Settings → API → **Create New Token** — downloads `kaggle.json`
-2. Place it at `~/.kaggle/kaggle.json` and `chmod 600 ~/.kaggle/kaggle.json`
-3. Verify: `kaggle datasets list` — should return results without auth errors
-
-#### TASK-1.1.2 — Set environment variables
-```bash
-export KAGGLE_USERNAME=<your-kaggle-username>
-export KAGGLE_KEY=<your-kaggle-key>
-```
-Add both to your shell profile (`.zshrc` / `.bashrc`) so they persist across sessions.
-
----
-
-### Feature 1.2 — Start Temporal server locally
-
-#### TASK-1.2.1 — Bring up Temporal via docker-compose
-The `docker-compose.yml` includes `temporal`, `temporal-db`, and `temporal-ui` services. Start only these — the worker runs locally (outside Docker) so it can reach your local filesystem and Kaggle credentials directly:
-```bash
-docker compose up temporal temporal-db temporal-ui -d
-```
-Wait ~30 seconds for Temporal to finish its auto-setup, then verify:
-```bash
-docker compose ps   # temporal should be "healthy"
-```
-Temporal UI is now at **http://localhost:8233**.
-
----
-
-### Feature 1.3 — Run the Temporal worker locally
-
-The worker must run outside Docker so it can write checkpoints to `models/` and read `data/` from the host filesystem:
-```bash
-KAGGLE_USERNAME=$KAGGLE_USERNAME \
-KAGGLE_KEY=$KAGGLE_KEY \
-uv run python -m src.temporal.worker
-```
-Expected output:
-```
-Worker started — task_queue=aipet-training  host=localhost:7233
-```
-Leave this terminal running.
-
----
-
-### Feature 1.4 — Generate dataset and trigger training
-
-#### TASK-1.4.1 — Generate training data (if not already current)
-```bash
-uv run python -m src.cli.generate_dataset
-```
-Verify `data/train.jsonl` has 5 000 lines and `data/eval.jsonl` has 500.
-
-#### TASK-1.4.2 — Trigger the Kaggle training workflow
-Open a second terminal and run:
-```bash
-uv run python -m src.cli.trigger_training \
-  --experiment-name aipet-v1 \
-  --remote-backend kaggle \
-  --model HuggingFaceTB/SmolLM2-1.7B \
-  --epochs 5 \
-  --patience 3
-```
-The CLI prints a workflow ID and a direct link to the Temporal UI for that run.
-
-What happens internally:
-1. `generate_dataset_activity` — skipped if `--skip-generate` is passed
-2. `train_activity` — pushes `data/` to a Kaggle Dataset, renders and pushes the notebook, polls status every 60 s via `kaggle kernels status`
-3. `evaluate_activity` — runs eval on the downloaded checkpoint
-4. `export_activity` — converts to GGUF at `models/aipet.gguf` only if eval passes (≥ 95%)
-
-#### TASK-1.4.3 — Monitor progress
-- **Temporal UI:** http://localhost:8233 → find the workflow by experiment name; the activity timeline shows which step is running
-- **Kaggle kernel:** https://kaggle.com → Code → Your Work → find the kernel matching `<KAGGLE_USERNAME>/aipet-v1`
-- **Worker logs:** the terminal running `temporal.worker` streams `Remote status: kaggle … running`
-
----
-
-### Feature 1.5 — Validate results
-
-#### TASK-1.5.1 — Confirm checkpoint downloaded
-```bash
-ls -lh models/checkpoints/     # HuggingFace checkpoint files
-ls -lh models/aipet.gguf       # GGUF export (~1 GB for SmolLM2-1.7B Q4_K_M)
-```
-
-#### TASK-1.5.2 — Run quality report
-```bash
-uv run python -m src.cli.evaluate --quality
-# Expected: ≥ 95% schema-valid, per-stat accuracy ≥ 0.90
-```
-
-#### TASK-1.5.3 — Run quality integration tests
-```bash
-pytest tests/integration/test_model_quality.py -v
-```
-All four assertions must pass: per-stat accuracy, target accuracy, no dominant action, priority conflict resolution.
-
----
-
-## EPIC-2: Deploy to Raspberry Pi 5
-
-> Get the inference API running on the physical RPi using the trained GGUF model.
-
-**Prerequisites:** EPIC-1 complete (`models/aipet.gguf` exists), Docker with `buildx` and QEMU support for ARM64 cross-compilation.
-
----
-
-### Feature 2.1 — Build ARM64 image
-
-#### TASK-2.1.1 — Enable ARM64 builds on dev machine (one-time)
-```bash
-docker run --privileged --rm tonistiigi/binfmt --install arm64
-docker buildx create --use --name rpi-builder
-```
-
-#### TASK-2.1.2 — Build and export image tarball
-```bash
-docker buildx build \
-  --platform linux/arm64 \
-  --load \
-  -t aipet-llm:latest .
-
-docker save aipet-llm:latest | gzip > /tmp/aipet-llm.tar.gz
-```
-
----
-
-### Feature 2.2 — Write RPi deploy script
-
-#### TASK-2.2.1 — Create `src/cli/deploy.py`
-Thin CLI that does the full transfer in one command:
-- `rsync` the image tarball and `models/aipet.gguf` to the RPi
-- SSH in and run `docker load`, then restart with `docker compose up -d`
-- Config via env vars: `RPI_HOST`, `RPI_USER`, `RPI_KEY_PATH`
-
-```bash
-RPI_HOST=raspberrypi.local RPI_USER=pi uv run python -m src.cli.deploy
-```
-
----
-
-### Feature 2.3 — First-time RPi setup
-
-#### TASK-2.3.1 — Install Docker on RPi
-```bash
-ssh pi@raspberrypi.local
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker pi
-```
-
-#### TASK-2.3.2 — Copy and start the service
-```bash
-rsync /tmp/aipet-llm.tar.gz pi@raspberrypi.local:~/
-rsync models/aipet.gguf pi@raspberrypi.local:~/models/
-ssh pi@raspberrypi.local "docker load < ~/aipet-llm.tar.gz && docker compose up -d"
-```
-
-#### TASK-2.3.3 — Validate the endpoint
-```bash
-curl http://raspberrypi.local:8000/health
-# Expected: {"status": "ok", "model": "/app/models/aipet.gguf"}
-```
-
----
-
 ## EPIC-3: CI/CD Automation
 
 > Automate build and deploy so every push to `main` ships a new image.
@@ -237,3 +58,114 @@ uv run python -m src.cli.train --dry-run --patience 1
 
 #### TASK-4.1.2 — Document training flags in `README.md`
 Cover `--patience`, `--warmup-ratio`, `--base-model`, `--remote-backend` with example invocations.
+
+---
+
+## EPIC-5: Auto Deployment & Model Availability
+
+> When a model passes the ≥ 95% eval gate it should be automatically saved to cloud storage, registered in a model registry, and made testable via the API — without manual steps.
+
+**Goals (from TODO):**
+- Save successful models to cloud storage (GCP GCS)
+- Register model metadata (eval score, run ID, base model, timestamp)
+- Let anyone hit an API to list, inspect, and test-infer against any registered model
+- Support activating a model (hot-swap the running inference adapter) via the API
+
+**Prerequisites:** EPIC-1 validation complete (a ≥ 95% GGUF exists), GCP project with a GCS bucket.
+
+---
+
+### Feature 5.1 — Cloud Storage Adapter (GCP GCS)
+
+**Fill in this section with:** bucket name/path scheme, auth approach (service account vs. ADC), and whether checkpoints as well as GGUFs should be stored.
+
+#### TASK-5.1.1 — `GcpStorageAdapter`
+Implement `GcpStorageAdapter` in `src/adapters/storage/gcp_storage.py` implementing `StoragePort`:
+- `upload_model(run_id, gguf_path) → str` — uploads to `gs://<GCS_BUCKET>/models/<run_id>/aipet.gguf`, returns the GCS URI
+- `download_model(run_id, dest_path) → Path` — downloads GGUF to a local path
+- `list_models() → list[str]` — returns run IDs with a stored GGUF
+- Config via env vars: `GCS_BUCKET`, `GOOGLE_APPLICATION_CREDENTIALS`
+
+**Outputs:** `src/adapters/storage/gcp_storage.py`, `tests/unit/test_gcp_storage.py`
+
+#### TASK-5.1.2 — Wire upload into `export_activity`
+After the GGUF is written, call `GcpStorageAdapter.upload_model()` when `GCS_BUCKET` is set. Log the returned GCS URI so the Temporal UI displays the artifact location.
+
+**Outputs:** Updated `src/interactors/temporal/activities.py`
+
+---
+
+### Feature 5.2 — Model Registry
+
+**Fill in this section with:** whether to use the existing SQLAlchemy DB or a separate store (e.g. GCS metadata JSON), and what fields matter most for filtering/sorting in the UI.
+
+#### TASK-5.2.1 — `ModelRecord` schema and DB table
+Add to `src/domain/models.py`:
+```python
+class ModelRecord(BaseModel):
+    run_id: str
+    eval_score: float
+    base_model: str       # e.g. "HuggingFaceTB/SmolLM2-1.7B"
+    epochs: int
+    created_at: datetime
+    gcs_uri: str          # gs:// path to the GGUF
+    is_active: bool       # currently loaded by the inference adapter
+```
+Add an Alembic migration for the `model_records` table.
+
+**Outputs:** Updated `src/domain/models.py`, new Alembic migration
+
+#### TASK-5.2.2 — `ModelRegistryPort` + SQL adapter
+Add to `src/domain/ports.py`:
+- `register(record: ModelRecord) → None`
+- `list_models() → list[ModelRecord]`
+- `set_active(run_id: str) → ModelRecord`
+- `get_active() → ModelRecord | None`
+
+Implement `SqlModelRegistryAdapter` in `src/adapters/database/model_registry.py`.
+
+**Outputs:** Updated `src/domain/ports.py`, `src/adapters/database/model_registry.py`, `tests/unit/test_model_registry.py`
+
+---
+
+### Feature 5.3 — Model Management API Endpoints
+
+**Fill in this section with:** auth requirements (open or gated), whether the activate endpoint should be synchronous or kick off a background task, and desired response shape for `GET /models`.
+
+#### TASK-5.3.1 — Model management routes
+Add to `src/interactors/api/`:
+- `GET /models` — list all registered models (run ID, eval score, base model, GCS URI, is_active)
+- `GET /models/active` — return the currently loaded model record
+- `POST /models/{run_id}/activate` — download GGUF from GCS, hot-swap the inference adapter, mark `is_active`
+- `POST /models/{run_id}/infer` — run a one-off inference with the specified model *without* making it active (useful for A/B testing)
+
+**Outputs:** `src/interactors/api/routes_models.py`, `tests/integration/test_model_routes.py`
+
+#### TASK-5.3.2 — Hot-swap support in `LlamaCppInferenceAdapter`
+Add `reload(gguf_path: str) → None` that unloads the current model and loads the new one. Wrap the swap in a lock so in-flight requests drain before the model switches.
+
+**Outputs:** Updated `src/adapters/inference.py`
+
+---
+
+### Feature 5.4 — Auto-Register on Eval Pass (Temporal)
+
+**Fill in this section with:** whether auto-activate should be the default or opt-in, and any notification hook (Slack/email) wanted on successful registration.
+
+#### TASK-5.4.1 — `register_model_activity`
+After `export_activity` succeeds, add `register_model_activity` to `src/interactors/temporal/activities.py`:
+1. Calls `GcpStorageAdapter.upload_model()` → GCS URI
+2. Calls `ModelRegistryPort.register()` with eval score and metadata
+3. Calls `ModelRegistryPort.set_active()` if the `auto_activate` workflow param is `True`
+
+**Outputs:** Updated `src/interactors/temporal/activities.py`, `src/interactors/temporal/workflows.py`
+
+#### TASK-5.4.2 — `--auto-activate` flag on `trigger_training` CLI
+```bash
+uv run python -m src.cli.trigger_training \
+  --experiment-name aipet-v2 \
+  --remote-backend kaggle \
+  --auto-activate   # activates the model immediately after eval passes
+```
+
+**Outputs:** Updated `src/interactors/cli/trigger_training.py`

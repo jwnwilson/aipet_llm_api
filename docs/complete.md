@@ -107,3 +107,25 @@ Full training lifecycle orchestrated as a Temporal workflow with retry semantics
 ### P.5 — ECR Terraform provisioning
 ECR repository, lifecycle policy, GitHub OIDC IAM role, and push policy provisioned via Terraform.
 **Outputs:** `infra/terraform/main.tf`, `infra/terraform/github_actions.tf`, `infra/terraform/variables.tf`, `infra/terraform/outputs.tf`, `infra/terraform/versions.tf`
+
+---
+
+## EPIC-1: Kaggle Training Pipeline (Operational)
+
+> End-to-end Kaggle GPU training pipeline is running. Validation of model quality (Feature 1.5) remains pending in plan.md.
+
+### Feature 1.1 — Kaggle credentials
+`~/.kaggle/kaggle.json` provisioned; `KAGGLE_USERNAME` and `KAGGLE_KEY` set in shell profile.
+
+### Feature 1.2 — Temporal server (local)
+`docker-compose.yml` runs `temporal`, `temporal-db`, and `temporal-ui`; Temporal UI at http://localhost:8233.
+
+### Feature 1.3 — Temporal worker (local)
+Worker runs outside Docker via `uv run python -m src.temporal.worker`; handles task queue `aipet-training`.
+
+### Feature 1.4 — Dataset generation and training trigger
+- `src/cli/generate_dataset.py` produces 5 000 train / 500 eval examples.
+- `src/cli/trigger_training.py` submits the Temporal workflow with `--remote-backend kaggle`.
+- `evaluate_activity` and `export_activity` wired end-to-end; GGUF written to `models/aipet.gguf` only when eval ≥ 95%.
+- Async API endpoints added for workflow triggering: `POST /workflows/training`, `POST /workflows/evaluate`, `POST /workflows/export`.
+- Alembic migrations in place for workflow run tracking.
