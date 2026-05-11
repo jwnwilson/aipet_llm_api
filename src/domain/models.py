@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -47,5 +48,24 @@ class RemoteTrainConfig(BaseModel):
     warmup_ratio: float
     experiment_name: str
     gpu_type: str = "NvidiaTeslaT4"
+
+
+class TrainingModelConfig(BaseModel):
+    name: str
+    description: str = ""
+    base_model: str = "HuggingFaceTB/SmolLM2-360M"
+    train_data: str = "data/train.jsonl"
+    eval_data: str = "data/eval.jsonl"
+    epochs: int = 5
+    patience: int = 3
+    warmup_ratio: float = 0.05
+    remote_backend: str = "local"
+    skip_generate: bool = False
+
+
+class TrainingModel(TrainingModelConfig):
+    id: str
+    created_at: datetime
+    updated_at: datetime
 
 

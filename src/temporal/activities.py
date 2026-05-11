@@ -46,6 +46,7 @@ class TrainConfig:
     epochs: int = DEFAULT_EPOCHS
     patience: int = DEFAULT_PATIENCE
     warmup_ratio: float = DEFAULT_WARMUP_RATIO
+    dry_run: bool = False
     # Remote backend: "" or "local" → run locally; "kaggle" or "ssh" → remote.
     remote_backend: str = ""
     experiment_name: str = ""
@@ -155,6 +156,7 @@ async def _train_local(config: TrainConfig) -> CheckpointPath:
                 epochs=config.epochs,
                 patience=config.patience,
                 warmup_ratio=config.warmup_ratio,
+                dry_run=config.dry_run,
             ),
         )
     except Exception as exc:

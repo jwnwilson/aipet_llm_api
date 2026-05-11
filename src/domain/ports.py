@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Literal
 
-from domain.models import InferenceRequest, InferenceResponse, RemoteTrainConfig
+from domain.models import InferenceRequest, InferenceResponse, RemoteTrainConfig, TrainingModel, TrainingModelConfig
 
 
 class InferencePort(ABC):
@@ -62,3 +62,27 @@ class RemoteTrainingPort(ABC):
     def logs(self, run_id: str) -> str:  # noqa: ARG002
         """Return recent log output for the running job (best-effort, may be empty)."""
         return ""
+
+
+class ModelStorePort(ABC):
+    """Abstract interface for persisting training model configurations."""
+
+    @abstractmethod
+    def list(self) -> list[TrainingModel]:
+        """Return all stored training models."""
+
+    @abstractmethod
+    def get(self, id: str) -> TrainingModel | None:
+        """Return the model with the given id, or None if not found."""
+
+    @abstractmethod
+    def create(self, config: TrainingModelConfig) -> TrainingModel:
+        """Persist a new training model and return it with id and timestamps."""
+
+    @abstractmethod
+    def update(self, id: str, config: TrainingModelConfig) -> TrainingModel | None:
+        """Update an existing model; return updated model or None if not found."""
+
+    @abstractmethod
+    def delete(self, id: str) -> bool:
+        """Delete a model by id; return True if deleted, False if not found."""

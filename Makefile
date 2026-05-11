@@ -13,8 +13,10 @@ PATIENCE        ?= 3
 REMOTE_BACKEND  ?= kaggle
 MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 # MODEL           ?= HuggingFaceTB/SmolLM2-360M
+FAST_MODEL      ?= HuggingFaceTB/SmolLM2-135M
+FAST_DATA_DIR   ?= data/fast
 
-.PHONY: serve test test-unit test-integration test-cli test-all data train evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger kaggle-train help
+.PHONY: serve test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -41,6 +43,18 @@ test-all: ## Run all tests including slow integration tests
 
 data: ## Generate synthetic training + eval data  (DATA_DIR=... to override output path)
 	PYTHONPATH=src uv run python src/cli/generate_dataset.py --data-dir $(DATA_DIR)
+
+data-fast: ## Generate tiny dataset (20 train / 10 eval) into data/fast/
+	PYTHONPATH=src uv run python src/cli/generate_dataset.py \
+		--data-dir $(FAST_DATA_DIR) --train-size 20 --eval-size 10
+
+train-fast: data-fast ## Smoke-test: tiny model + 20-example dataset + 1 training step  (FAST_MODEL=... to override)
+	PYTHONPATH=src uv run python src/cli/train.py \
+		--dry-run \
+		--model $(FAST_MODEL) \
+		--train-data $(FAST_DATA_DIR)/train.jsonl \
+		--eval-data $(FAST_DATA_DIR)/eval.jsonl \
+		--output-dir models/checkpoints-test
 
 train: ## Fine-tune the model  (DRY_RUN=1 for smoke test, DATA_DIR/OUTPUT_DIR to override paths)
 	PYTHONPATH=src uv run python src/cli/train.py \
@@ -99,6 +113,17 @@ temporal-down: ## Stop Temporal server and worker
 
 temporal-worker: ## Run the Temporal activity worker locally  (requires Temporal server)
 	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python -m temporal.worker
+
+temporal-trigger-fast: ## Trigger a fast smoke-test pipeline via Temporal  (tiny model + 20 examples + 1 step, local backend)
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/cli/trigger_training.py \
+		--experiment-name aipet-fast-test \
+		--model $(FAST_MODEL) \
+		--train-size 20 \
+		--eval-size 10 \
+		--data-dir $(FAST_DATA_DIR) \
+		--output-dir models/checkpoints-test \
+		--dry-run \
+		--remote-backend kaggle
 
 temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS / PATIENCE / REMOTE_BACKEND / MODEL / SKIP_GENERATE=1)
 	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/cli/trigger_training.py \

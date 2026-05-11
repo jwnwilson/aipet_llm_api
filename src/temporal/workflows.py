@@ -33,6 +33,7 @@ class ExperimentConfig:
     patience: int = DEFAULT_PATIENCE
     warmup_ratio: float = DEFAULT_WARMUP_RATIO
     skip_generate: bool = False
+    dry_run: bool = False
     data_dir: str = "data"
     output_dir: str = DEFAULT_OUTPUT_DIR
     model: str = DEFAULT_MODEL
@@ -101,6 +102,7 @@ class TrainingPipelineWorkflow:
                 epochs=config.epochs,
                 patience=config.patience,
                 warmup_ratio=config.warmup_ratio,
+                dry_run=config.dry_run,
                 remote_backend=config.remote_backend,
                 experiment_name=config.experiment_name,
             ),

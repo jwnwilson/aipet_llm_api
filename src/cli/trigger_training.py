@@ -15,8 +15,13 @@ async def _trigger(
     patience: int,
     warmup_ratio: float,
     skip_generate: bool,
+    dry_run: bool,
     remote_backend: str,
     model: str,
+    train_size: int,
+    eval_size: int,
+    data_dir: str,
+    output_dir: str,
 ) -> None:
     from temporalio.client import Client
 
@@ -32,8 +37,13 @@ async def _trigger(
         patience=patience,
         warmup_ratio=warmup_ratio,
         skip_generate=skip_generate,
+        dry_run=dry_run,
         remote_backend=remote_backend,
         model=model,
+        train_size=train_size,
+        eval_size=eval_size,
+        data_dir=data_dir,
+        output_dir=output_dir,
     )
 
     workflow_id = f"training-{experiment_name}-{uuid.uuid4().hex[:8]}"
@@ -53,7 +63,8 @@ async def _trigger(
 
 
 def main(argv: list[str] | None = None) -> None:
-    from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
+    from domain.train.dataset import EVAL_SIZE, TRAIN_SIZE
+    from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
 
     parser = argparse.ArgumentParser(
         description="Trigger a TrainingPipelineWorkflow on Temporal.",
@@ -66,6 +77,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--warmup-ratio", type=float, default=DEFAULT_WARMUP_RATIO, dest="warmup_ratio")
     parser.add_argument("--skip-generate", action="store_true", dest="skip_generate",
                         help="Reuse the existing dataset — useful for hyperparameter experiments")
+    parser.add_argument("--dry-run", action="store_true", dest="dry_run",
+                        help="Train for 1 step only (smoke test)")
+    parser.add_argument("--train-size", type=int, default=TRAIN_SIZE, dest="train_size")
+    parser.add_argument("--eval-size", type=int, default=EVAL_SIZE, dest="eval_size")
+    parser.add_argument("--data-dir", default="data", dest="data_dir")
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, dest="output_dir")
     parser.add_argument(
         "--remote-backend",
         dest="remote_backend",
@@ -89,8 +106,13 @@ def main(argv: list[str] | None = None) -> None:
             patience=args.patience,
             warmup_ratio=args.warmup_ratio,
             skip_generate=args.skip_generate,
+            dry_run=args.dry_run,
             remote_backend=args.remote_backend if args.remote_backend != "local" else "",
             model=args.model,
+            train_size=args.train_size,
+            eval_size=args.eval_size,
+            data_dir=args.data_dir,
+            output_dir=args.output_dir,
         ))
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
