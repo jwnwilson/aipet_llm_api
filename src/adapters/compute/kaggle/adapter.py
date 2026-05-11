@@ -137,13 +137,56 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         return str(dest)
 
     def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:
-        # Kaggle kernels are batch-only and do not expose interactive inference.
-        # Use a backend that supports remote eval (e.g. ssh), or accept that eval
-        # will run locally after the checkpoint is downloaded.
-        raise NotImplementedError(
-            "Remote eval is not supported for Kaggle. "
-            "Use the ssh backend or remove remote_backend to eval locally."
+        experiment_name = run_id.split("/")[-1]
+        dataset_ref = f"{self._username}/{experiment_name}-data"
+
+        eval_kernel_id = f"{experiment_name}-eval"
+        eval_slug = f"{self._username}/{eval_kernel_id}"
+        kernel_dir = self._work_dir / eval_kernel_id
+        kernel_dir.mkdir(parents=True, exist_ok=True)
+
+        self._render_eval_notebook(run_id, eval_data, experiment_name, kernel_dir)
+
+        metadata = {
+            "id": eval_slug,
+            "title": eval_kernel_id,
+            "code_file": "eval_notebook.ipynb",
+            "language": "python",
+            "kernel_type": "notebook",
+            "is_private": True,
+            "enable_gpu": True,
+            "enable_internet": True,
+            "dataset_sources": [dataset_ref],
+        }
+        (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
+        subprocess.run(
+            [_kaggle_bin(), "kernels", "push", "-p", str(kernel_dir), "--accelerator", "NvidiaTeslaT4"],
+            check=True,
         )
+
+        started = time.time()
+        while True:
+            status = self.status(eval_slug)
+            elapsed = int(time.time() - started)
+            print(f"Eval status: {status} elapsed={elapsed}s", flush=True)
+            if status == "done":
+                break
+            if status == "failed":
+                raise RuntimeError(f"Eval kernel failed: {eval_slug}")
+            time.sleep(30)
+
+        result_dir = self._work_dir / f"{eval_kernel_id}-output"
+        result_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [_kaggle_bin(), "kernels", "output", eval_slug, "-p", str(result_dir)],
+            check=True,
+        )
+
+        result_file = result_dir / "eval_result.json"
+        if not result_file.exists():
+            raise RuntimeError(f"eval_result.json missing from eval kernel output at {result_dir}")
+        result = json.loads(result_file.read_text())
+        return result["valid_pct"], result["passed"]
 
     # ------------------------------------------------------------------
     # Helpers
@@ -254,6 +297,28 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
                 cell["source"] = [_replace_all(line, replacements) for line in src]
 
         (kernel_dir / "notebook.ipynb").write_text(json.dumps(notebook, indent=1))
+
+    def _render_eval_notebook(
+        self, training_run_id: str, eval_data: str, experiment_name: str, kernel_dir: Path
+    ) -> None:
+        template_path = Path(__file__).parent / "eval_notebook_template.ipynb"
+        notebook = json.loads(template_path.read_text())
+
+        config_repr = repr({
+            "training_run_id": training_run_id,
+            "experiment_name": experiment_name,
+            "eval_data_file": Path(eval_data).name,
+        })
+
+        replacements = {"{{config}}": config_repr}
+        for cell in notebook["cells"]:
+            src = cell["source"]
+            if isinstance(src, str):
+                cell["source"] = _replace_all(src, replacements)
+            else:
+                cell["source"] = [_replace_all(line, replacements) for line in src]
+
+        (kernel_dir / "eval_notebook.ipynb").write_text(json.dumps(notebook, indent=1))
 
 
 def _replace_all(s: str, replacements: dict[str, str]) -> str:
