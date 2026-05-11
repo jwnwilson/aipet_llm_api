@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [project]
-name = "aipet-llm"
+name = "aipet-llm-api"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"

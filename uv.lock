@@ -139,7 +139,7 @@ wheels = [
 ]
 
 [[package]]
-name = "aipet-llm"
+name = "aipet-llm-api"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

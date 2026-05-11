@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from domain.models import TrainingModel, TrainingModelConfig
 from domain.ports import ModelStorePort
 from infrastructure.database import get_session
-from infrastructure.model_store import SQLAlchemyModelStore
+from infrastructure.models.model_store import SQLAlchemyModelStore
 
 logger = logging.getLogger(__name__)
 

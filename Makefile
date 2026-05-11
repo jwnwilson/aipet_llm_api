@@ -16,30 +16,36 @@ MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 FAST_MODEL      ?= HuggingFaceTB/SmolLM2-135M
 FAST_DATA_DIR   ?= data/fast
 
-.PHONY: serve test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train help
+.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
+.venv:
+	uv sync --all-extras
+
+sync: ## Install / sync all dependencies including dev groups
+	uv sync --all-extras
+
 serve: ## Start the FastAPI server  (MODEL_PATH=... make serve)
 	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run uvicorn api.app:app \
 		--host $(HOST) --port $(PORT) --reload
 
-test: ## Run unit + CLI tests (fast; excludes integration)
-	uv run pytest tests/unit/ tests/cli/ -v
+test: .venv ## Run unit + CLI tests (fast; excludes integration)
+	uv run python -m pytest tests/unit/ tests/cli/ -v
 
-test-unit: ## Run unit tests only
-	uv run pytest tests/unit/ -v
+test-unit: .venv ## Run unit tests only
+	uv run python -m pytest tests/unit/ -v
 
-test-integration: ## Run integration tests only (requires models/aipet.gguf)
-	uv run pytest tests/integration/ -v
+test-integration: .venv ## Run integration tests only (requires models/aipet.gguf)
+	uv run python -m pytest tests/integration/ -v
 
-test-cli: ## Run CLI tests only
-	uv run pytest tests/cli/ -v
+test-cli: .venv ## Run CLI tests only
+	uv run python -m pytest tests/cli/ -v
 
-test-all: ## Run all tests including slow integration tests
-	uv run pytest tests/ -v
+test-all: .venv ## Run all tests including slow integration tests
+	uv run python -m pytest tests/ -v
 
 data: ## Generate synthetic training + eval data  (DATA_DIR=... to override output path)
 	PYTHONPATH=src uv run python src/cli/generate_dataset.py --data-dir $(DATA_DIR)

@@ -82,6 +82,7 @@ async def test_train_activity_delegates_to_domain():
         epochs=3,
         patience=2,
         warmup_ratio=0.05,
+        dry_run=False,
     )
     assert result == CheckpointPath(path="models/checkpoints")
 

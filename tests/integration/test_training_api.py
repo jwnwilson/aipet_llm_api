@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from api.training_routes import configure_model_store, get_model_store
 from infrastructure.database import Base
-from infrastructure.model_store import SQLAlchemyModelStore
+from infrastructure.models.model_store import SQLAlchemyModelStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -81,6 +82,16 @@ class TestListModels:
         assert resp.status_code == 200
         assert len(resp.json()) == 2
 
+    @pytest.mark.asyncio
+    async def test_models_ordered_newest_first(self, client):
+        await client.post("/api/models", json={**_VALID_CONFIG, "name": "first"})
+        await asyncio.sleep(0.01)
+        await client.post("/api/models", json={**_VALID_CONFIG, "name": "second"})
+
+        models = (await client.get("/api/models")).json()
+        assert models[0]["name"] == "second"
+        assert models[1]["name"] == "first"
+
 
 # ---------------------------------------------------------------------------
 # TestCreateModel
@@ -110,6 +121,19 @@ class TestCreateModel:
         body = resp.json()
         assert body["epochs"] == 5
         assert body["patience"] == 3
+
+    @pytest.mark.asyncio
+    async def test_created_at_equals_updated_at_on_creation(self, client):
+        resp = await client.post("/api/models", json=_VALID_CONFIG)
+        body = resp.json()
+        assert body["created_at"] == body["updated_at"]
+
+    @pytest.mark.asyncio
+    async def test_all_config_fields_are_persisted(self, client):
+        resp = await client.post("/api/models", json=_VALID_CONFIG)
+        body = resp.json()
+        for field, value in _VALID_CONFIG.items():
+            assert body[field] == value
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +173,18 @@ class TestUpdateModel:
     async def test_unknown_id_returns_404(self, client):
         resp = await client.put("/api/models/does-not-exist", json=_VALID_CONFIG)
         assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_updated_at_advances_but_created_at_unchanged(self, client_with_model):
+        client, model_id = client_with_model
+        original = (await client.get(f"/api/models/{model_id}")).json()
+
+        await asyncio.sleep(0.01)
+        resp = await client.put(f"/api/models/{model_id}", json={**_VALID_CONFIG, "name": "new-name"})
+        body = resp.json()
+
+        assert body["created_at"] == original["created_at"]
+        assert body["updated_at"] > original["updated_at"]
 
 
 # ---------------------------------------------------------------------------

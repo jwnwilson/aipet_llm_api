@@ -42,7 +42,7 @@ def configure(adapter: InferencePort) -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from infrastructure.inference import LlamaCppInferenceAdapter
     from infrastructure.database import init_db, make_engine
-    from infrastructure.model_store import SQLAlchemyModelStore
+    from infrastructure.models.model_store import SQLAlchemyModelStore
     from api.training_routes import configure_model_store
 
     model_path = os.getenv("MODEL_PATH", "models/aipet.gguf")
