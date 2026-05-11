@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from domain.models import RunConfig, RunRecord, RunStatus, TrainingModel, TrainingModelConfig
 from domain.ports import ModelStorePort, RunStorePort
@@ -257,3 +258,124 @@ def activate_run(
     configure(LlamaCppInferenceAdapter(model_path=str(local_path)))
     logger.info("Activated run %s — gguf=%s", run_id, local_path)
     return run
+
+
+# ---------------------------------------------------------------------------
+# Re-evaluate and download-export existing runs
+# ---------------------------------------------------------------------------
+
+class EvaluateRequest(BaseModel):
+    remote_backend: str = ""
+    remote_run_id: str = ""
+
+
+class ExportRequest(BaseModel):
+    remote_backend: str = ""
+    remote_run_id: str = ""
+
+
+
+@router.post("/runs/{run_id}/evaluate", status_code=202)
+async def evaluate_run(
+    run_id: str,
+    body: EvaluateRequest = EvaluateRequest(),
+    run_store: RunStorePort = Depends(get_run_store),
+    store: ModelStorePort = Depends(get_model_store),
+) -> dict[str, str]:
+    """Start an async eval workflow for an existing run. Poll GET /api/runs/{run_id} for status."""
+    run = run_store.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    model = store.get(run.model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found for this run")
+
+    remote_backend = body.remote_backend or model.remote_backend
+    if remote_backend == "local":
+        remote_backend = ""
+
+    workflow_id = f"evaluate-{run_id}-{uuid.uuid4().hex[:8]}"
+    try:
+        from temporalio.client import Client
+        from interactors.temporal.worker import TASK_QUEUE
+        from interactors.temporal.workflows import EvaluateWorkflow, EvaluateWorkflowConfig
+
+        client = await Client.connect(os.getenv("TEMPORAL_HOST", "localhost:7233"))
+        run_store.update(run_id, RunConfig(model_id=run.model_id, workflow_id=workflow_id))
+        run_store.update_status(run_id, RunStatus.RUNNING)
+
+        await client.start_workflow(
+            EvaluateWorkflow.run,
+            EvaluateWorkflowConfig(
+                run_id=run_id,
+                remote_backend=remote_backend,
+                remote_run_id=body.remote_run_id,
+                eval_data=model.eval_data,
+                checkpoint_path=f"data/workflow/{run_id}/checkpoint",
+                output_dir=f"data/workflow/{run_id}",
+            ),
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+        )
+
+        logger.info("Eval workflow started: run_id=%s workflow_id=%s", run_id, workflow_id)
+        return {"run_id": run_id, "workflow_id": workflow_id}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to start evaluate workflow for run %s", run_id)
+        raise HTTPException(status_code=500, detail="Failed to start evaluation workflow")
+
+
+@router.post("/runs/{run_id}/export", status_code=202)
+async def export_run(
+    run_id: str,
+    body: ExportRequest = ExportRequest(),
+    run_store: RunStorePort = Depends(get_run_store),
+    store: ModelStorePort = Depends(get_model_store),
+) -> dict[str, str]:
+    """Start an async export workflow for an existing run. Poll GET /api/runs/{run_id} for status."""
+    run = run_store.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    model = store.get(run.model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found for this run")
+
+    remote_backend = body.remote_backend or model.remote_backend
+    if remote_backend == "local":
+        remote_backend = ""
+
+    workflow_id = f"export-{run_id}-{uuid.uuid4().hex[:8]}"
+    try:
+        from temporalio.client import Client
+        from interactors.temporal.worker import TASK_QUEUE
+        from interactors.temporal.workflows import ExportWorkflow, ExportWorkflowConfig
+
+        client = await Client.connect(os.getenv("TEMPORAL_HOST", "localhost:7233"))
+        run_store.update(run_id, RunConfig(model_id=run.model_id, workflow_id=workflow_id))
+        run_store.update_status(run_id, RunStatus.RUNNING)
+
+        await client.start_workflow(
+            ExportWorkflow.run,
+            ExportWorkflowConfig(
+                run_id=run_id,
+                model_id=model.id,
+                remote_backend=remote_backend,
+                remote_run_id=body.remote_run_id,
+                checkpoint_path=f"data/workflow/{run_id}/checkpoint",
+                gguf_output=f"data/workflow/{run_id}/model.gguf",
+            ),
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+        )
+
+        logger.info("Export workflow started: run_id=%s workflow_id=%s", run_id, workflow_id)
+        return {"run_id": run_id, "workflow_id": workflow_id}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to start export workflow for run %s", run_id)
+        raise HTTPException(status_code=500, detail="Failed to start export workflow")

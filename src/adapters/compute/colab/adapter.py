@@ -36,7 +36,8 @@ class ColabTrainingAdapter(RemoteTrainingPort):
     def __init__(self, work_dir: Path | None = None) -> None:
         self._work_dir = work_dir or Path("models/colab_runs")
         self._work_dir.mkdir(parents=True, exist_ok=True)
-        self._project_root = Path(__file__).parents[3].resolve()
+        self._project_root = Path(__file__).parents[4].resolve()
+        self._root_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
         self._drive = self._build_drive_client()
 
     # ------------------------------------------------------------------
@@ -103,19 +104,28 @@ class ColabTrainingAdapter(RemoteTrainingPort):
     # ------------------------------------------------------------------
 
     def _build_drive_client(self):
-        import google.auth
         from googleapiclient.discovery import build
 
-        creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if creds_path:
-            from google.oauth2 import service_account
-            creds = service_account.Credentials.from_service_account_file(
-                creds_path,
-                scopes=["https://www.googleapis.com/auth/drive"],
+        token_file = os.environ.get(
+            "GOOGLE_OAUTH_TOKEN_FILE",
+            os.path.expanduser("~/.config/aipet/google_token.json"),
+        )
+        if os.path.exists(token_file):
+            import json
+            from google.oauth2.credentials import Credentials
+            from google.auth.transport.requests import Request
+
+            creds = Credentials.from_authorized_user_file(
+                token_file, scopes=["https://www.googleapis.com/auth/drive"]
             )
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                Path(token_file).write_text(creds.to_json())
         else:
-            creds, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/drive"]
+            raise RuntimeError(
+                "Google OAuth token not found. Run:\n"
+                "  make google-auth\n"
+                "to do the one-time browser login and save your token."
             )
         return build("drive", "v3", credentials=creds)
 
@@ -154,19 +164,13 @@ class ColabTrainingAdapter(RemoteTrainingPort):
         return self._drive.files().create(body=meta, fields="id").execute()["id"]
 
     def _get_or_create_root_folder(self) -> str:
-        query = (
-            f"name='{_DRIVE_ROOT_FOLDER}' and "
-            "mimeType='application/vnd.google-apps.folder' and trashed=false"
+        if self._root_folder_id:
+            return self._root_folder_id
+        raise RuntimeError(
+            "GOOGLE_DRIVE_FOLDER_ID is not set. "
+            "Create a 'ColabTraining' folder in your Google Drive, share it with "
+            "the service account as Editor, then set GOOGLE_DRIVE_FOLDER_ID to its folder ID."
         )
-        results = self._drive.files().list(q=query, fields="files(id)").execute()
-        files = results.get("files", [])
-        if files:
-            return files[0]["id"]
-        meta = {
-            "name": _DRIVE_ROOT_FOLDER,
-            "mimeType": "application/vnd.google-apps.folder",
-        }
-        return self._drive.files().create(body=meta, fields="id").execute()["id"]
 
     def _upload_directory(self, staging: Path, folder_id: str) -> None:
         for path in staging.iterdir():

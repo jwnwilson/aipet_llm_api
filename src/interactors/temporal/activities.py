@@ -430,6 +430,14 @@ async def finalise_run_activity(run_id: str, passed: bool, valid_pct: float) -> 
 
 
 @activity.defn
+async def update_run_status_activity(run_id: str, status_value: str) -> None:
+    """Set run status without touching eval_valid_pct (used by export-only workflows)."""
+    from domain.models import RunStatus
+    store = _get_run_store()
+    store.update_status(run_id, RunStatus(status_value))
+
+
+@activity.defn
 async def save_gguf_path_activity(model_id: str, gguf_path: str) -> None:
     """Persist the storage key of the exported GGUF back to the model record."""
     store = _get_model_store()

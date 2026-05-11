@@ -127,6 +127,41 @@ def build_hf_dataset(records: list[dict], tokenizer, max_length: int = MAX_LENGT
     return Dataset.from_dict({"input_ids": all_input_ids, "attention_mask": all_attention_masks, "labels": all_labels})
 
 
+class _ProgressCallback(TrainerCallback):
+    """Writes a JSON sidecar after each log step so remote pollers can read training progress."""
+
+    def __init__(self, progress_path: "Path") -> None:
+        import time as _time
+        self._path = progress_path
+        self._start = _time.time()
+
+    def on_log(
+        self,
+        args: "TrainingArguments",
+        state: "TrainerState",
+        control: "TrainerControl",
+        logs: dict | None = None,
+        **kwargs,
+    ) -> None:
+        import time as _time
+        if not logs:
+            return
+        entry: dict = {
+            "step": state.global_step,
+            "max_steps": state.max_steps,
+            "epoch": round(state.epoch or 0.0, 2),
+            "elapsed_s": int(_time.time() - self._start),
+        }
+        for k, v in logs.items():
+            if isinstance(v, float):
+                entry[k] = round(v, 4)
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps(entry))
+        except OSError:
+            pass
+
+
 class _ActionQualityCallback(TrainerCallback):
     """Logs per-action accuracy on a small eval sample at each eval step."""
 
@@ -247,6 +282,7 @@ def train(
     dry_run: bool = False,
     batch_size: int | None = None,
     no_mps: bool = False,
+    progress_path: str | None = None,
 ) -> None:
     if not _TORCH_AVAILABLE:
         raise ImportError("PyTorch not installed. Run: uv sync")
@@ -420,6 +456,8 @@ def train(
     )
 
     callbacks = [_ActionQualityCallback(eval_records, tokenizer, n_sample=20)]
+    if progress_path:
+        callbacks.append(_ProgressCallback(Path(progress_path)))
     if not dry_run:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience))
 

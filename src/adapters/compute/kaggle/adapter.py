@@ -112,6 +112,39 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         return "pending"
 
     def logs(self, run_id: str) -> str:
+        """Return a progress string from the training sidecar file if available.
+
+        The training notebook writes /kaggle/working/progress.json after each
+        HF Trainer log step. We try to fetch it via ``kaggle kernels output``
+        with a short timeout; whether Kaggle exposes working-dir files during
+        execution depends on their API version. On failure we fall back to the
+        plain kernel status line.
+        """
+        try:
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                subprocess.run(
+                    [_kaggle_bin(), "kernels", "output", run_id, "-p", tmpdir, "--quiet"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+                progress_file = Path(tmpdir) / "progress.json"
+                if progress_file.exists():
+                    data = json.loads(progress_file.read_text())
+                    step = data.get("step", "?")
+                    max_steps = data.get("max_steps", "?")
+                    epoch = data.get("epoch", "?")
+                    elapsed = data.get("elapsed_s", "?")
+                    parts = [f"step={step}/{max_steps}", f"epoch={epoch}", f"elapsed={elapsed}s"]
+                    for key in ("loss", "eval_loss", "grad_norm"):
+                        if key in data:
+                            parts.append(f"{key}={data[key]:.4f}")
+                    return "  ".join(parts)
+        except Exception:
+            pass
+
         result = subprocess.run(
             [_kaggle_bin(), "kernels", "status", run_id],
             capture_output=True,

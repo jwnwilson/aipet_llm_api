@@ -18,8 +18,9 @@ from interactors.temporal.activities import (
     generate_dataset_activity,
     save_gguf_path_activity,
     train_activity,
+    update_run_status_activity,
 )
-from interactors.temporal.workflows import TrainingPipelineWorkflow
+from interactors.temporal.workflows import EvaluateWorkflow, ExportWorkflow, TrainingPipelineWorkflow
 
 TASK_QUEUE = "aipet-training"
 
@@ -42,7 +43,7 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        workflows=[TrainingPipelineWorkflow],
+        workflows=[TrainingPipelineWorkflow, EvaluateWorkflow, ExportWorkflow],
         activities=[
             generate_dataset_activity,
             train_activity,
@@ -50,6 +51,7 @@ async def main() -> None:
             export_activity,
             finalise_run_activity,
             save_gguf_path_activity,
+            update_run_status_activity,
         ],
     )
 

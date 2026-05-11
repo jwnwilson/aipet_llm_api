@@ -26,6 +26,7 @@ with workflow.unsafe.imports_passed_through():
         generate_dataset_activity,
         save_gguf_path_activity,
         train_activity,
+        update_run_status_activity,
     )
 
 
@@ -180,3 +181,95 @@ class TrainingPipelineWorkflow:
             )
 
         return result
+
+
+# ---------------------------------------------------------------------------
+# Standalone evaluate workflow (re-eval an existing run without retraining)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class EvaluateWorkflowConfig:
+    run_id: str = ""
+    remote_backend: str = ""
+    remote_run_id: str = ""
+    eval_data: str = "data/eval.jsonl"
+    checkpoint_path: str = ""
+    output_dir: str = ""
+
+
+@workflow.defn
+class EvaluateWorkflow:
+    @workflow.run
+    async def run(self, config: EvaluateWorkflowConfig) -> EvalResult:
+        result = await workflow.execute_activity(
+            evaluate_activity,
+            EvalConfig(
+                checkpoint=config.checkpoint_path,
+                eval_data=config.eval_data,
+                run_id=config.remote_run_id,
+                remote_backend=config.remote_backend,
+                output_dir=config.output_dir,
+            ),
+            start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=_RETRY,
+        )
+        if config.run_id:
+            await workflow.execute_activity(
+                finalise_run_activity,
+                args=[config.run_id, result.passed, result.valid_pct],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=_RETRY,
+            )
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Standalone export workflow (download checkpoint + export GGUF)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ExportWorkflowConfig:
+    run_id: str = ""
+    model_id: str = ""
+    remote_backend: str = ""
+    remote_run_id: str = ""
+    checkpoint_path: str = ""
+    gguf_output: str = "models/aipet.gguf"
+
+
+@workflow.defn
+class ExportWorkflow:
+    @workflow.run
+    async def run(self, config: ExportWorkflowConfig) -> GGUFPath:
+        gguf = await workflow.execute_activity(
+            export_activity,
+            ExportConfig(
+                checkpoint_path=config.checkpoint_path,
+                gguf_output=config.gguf_output,
+                run_id=config.remote_run_id,
+                remote_backend=config.remote_backend,
+                model_id=config.model_id,
+                pipeline_run_id=config.run_id,
+            ),
+            start_to_close_timeout=timedelta(hours=1),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=_NO_RETRY,
+        )
+        if config.model_id:
+            await workflow.execute_activity(
+                save_gguf_path_activity,
+                args=[config.model_id, gguf.path],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=_RETRY,
+            )
+        if config.run_id:
+            await workflow.execute_activity(
+                update_run_status_activity,
+                args=[config.run_id, "completed"],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=_RETRY,
+            )
+        return gguf

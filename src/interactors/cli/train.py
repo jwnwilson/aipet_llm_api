@@ -46,6 +46,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--batch-size", type=int, default=None, dest="batch_size")
     parser.add_argument("--no-mps", action="store_true", default=False, dest="no_mps")
+    parser.add_argument(
+        "--progress-path", default=None, dest="progress_path",
+        help="Path to write a JSON training-progress sidecar after each log step "
+             "(used by remote pollers, e.g. the Kaggle adapter)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -60,6 +65,7 @@ def main(argv: list[str] | None = None) -> None:
             dry_run=args.dry_run,
             batch_size=args.batch_size,
             no_mps=args.no_mps,
+            progress_path=args.progress_path,
         )
     except ImportError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
