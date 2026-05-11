@@ -7,7 +7,7 @@ import json
 import sys
 
 from domain.models import InferenceRequest
-from infrastructure.inference import LlamaCppInferenceAdapter
+from adapters.inference import LlamaCppInferenceAdapter
 
 
 def main(argv: list[str] | None = None) -> None:

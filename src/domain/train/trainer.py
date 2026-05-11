@@ -145,7 +145,7 @@ class _ActionQualityCallback(TrainerCallback):
         if model is None or not self._records:
             return
 
-        from infrastructure.prompt import parse_response
+        from adapters.prompt import parse_response
 
         model.eval()
         action_counts: Counter[str] = Counter()

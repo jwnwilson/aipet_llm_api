@@ -15,7 +15,7 @@ from domain.models import (
     SceneData,
     SceneObject,
 )
-from infrastructure.prompt import build_prompt
+from adapters.prompt import build_prompt
 
 SEED = 42
 TRAIN_SIZE = 5000

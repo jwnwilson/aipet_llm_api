@@ -15,47 +15,52 @@ Full requirements: [docs/prd.md](docs/prd.md) | Implementation plan: [docs/plan.
 
 ## Architecture
 
-Hexagonal architecture — domain logic has no I/O dependencies:
+Three-layer architecture keeping domain logic free of I/O concerns:
+
+- **`src/interactors/`** — entry points that initialise and wire the application: FastAPI app, CLI scripts, Temporal worker. Nothing here contains business logic; it delegates to domain and adapters.
+- **`src/domain/`** — pure business logic with no I/O dependencies. Uses abstract ports (interfaces) so it has no knowledge of adapters or interactors.
+- **`src/adapters/`** — concrete implementations of domain ports: databases, LLM inference, storage, and remote compute services (Kaggle, SSH, Colab). Swap an adapter without touching domain or interactor code.
 
 ```
 src/
+  interactors/     # entry points — wire adapters + domain, then hand off
+    api/           # FastAPI app + routes
+    cli/           # thin CLI wrappers (argparse + sys.exit only)
+    temporal/      # Temporal worker, workflows, activities
   domain/          # pure business logic, no I/O
     models.py      # Pydantic schemas: SceneObject, SceneData, PetStats, InferenceRequest/Response
     actions.py     # Action enum: EAT, DRINK, PLAY, FETCH, SLEEP, SOCIAL, FOLLOW, TOILET, IDLE, EXPLORE
-    ports.py       # abstract ports: InferencePort, RemoteTrainingPort
+    ports.py       # abstract ports: InferencePort, StoragePort, ModelStorePort, RunStorePort, …
     train/         # training domain logic (no CLI, no argparse)
       dataset.py   # generate(), label(), make_example()
       trainer.py   # train(), build_hf_dataset(), load_jsonl()
       evaluate.py  # evaluate(), load_hf_pipeline(), load_llama_cpp_adapter()
       export.py    # export() — HF checkpoint → GGUF
-  infrastructure/  # local infrastructure adapters, implements ports
+  adapters/        # concrete port implementations — swap freely
+    database/      # SQLAlchemy engine, CRUD base, ModelStore, RunStore
     inference.py   # LlamaCppInferenceAdapter
     prompt.py      # build_prompt() + parse_response()
-  adapters/        # 3rd-party / remote adapters, implements ports
-    kaggle_adapter.py   # KaggleTrainingAdapter(RemoteTrainingPort)
-    ssh_adapter.py      # SshTrainingAdapter(RemoteTrainingPort)
-  api/             # FastAPI adapter (primary/driving)
-    app.py
-    routes.py      # POST /infer, GET /health
-  cli/             # thin CLI wrappers (argparse + sys.exit only)
-    generate_dataset.py
-    train.py
-    evaluate.py
-    export.py
-    infer.py
+    storage/       # LocalStorageAdapter
+    compute/       # remote training backends
+      kaggle/      # KaggleTrainingAdapter
+      colab/       # ColabTrainingAdapter
+      ssh.py       # SshTrainingAdapter
 tests/
   unit/
   integration/
+  cli/
 data/
-  train.jsonl      # 5000 synthetic examples
-  eval.jsonl       # 500 synthetic examples
+  workflow/{run_id}/   # all artifacts for a run (dataset, checkpoint, GGUF)
 models/
-  checkpoints/     # HuggingFace fine-tune output
-  aipet.gguf       # quantised Q4_K_M export for RPi
+  aipet.gguf           # quantised Q4_K_M export for RPi
 ```
 
-> **Do not use a `scripts/` folder.** CLI entrypoints live in `src/cli/`; training domain logic lives in `src/domain/train/`.
-> **Adapter placement rule:** Ports (interfaces) belong in `src/domain/ports.py`. Local infrastructure (llama.cpp) goes in `src/infrastructure/`. Any adapter that communicates with a 3rd-party service (Kaggle, SSH remotes, external APIs) goes in `src/adapters/`.
+> **Placement rules:**
+> - Ports (interfaces) belong in `src/domain/ports.py`.
+> - Business logic belongs in `src/domain/` — no argparse, no I/O, no adapter imports.
+> - Concrete implementations of ports belong in `src/adapters/`.
+> - Wiring, startup, and user-facing entry points belong in `src/interactors/`.
+> - Do not use a `scripts/` folder or `src/infrastructure/`.
 
 ## Domain rules
 

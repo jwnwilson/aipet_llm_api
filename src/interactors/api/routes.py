@@ -7,7 +7,7 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.app import get_adapter
+from interactors.api.app import get_adapter
 from domain.models import InferenceRequest, InferenceResponse
 from domain.ports import InferencePort
 

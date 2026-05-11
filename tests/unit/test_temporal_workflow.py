@@ -12,13 +12,13 @@ import pytest
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from temporal.activities import (
+from interactors.temporal.activities import (
     evaluate_activity,
     export_activity,
     generate_dataset_activity,
     train_activity,
 )
-from temporal.workflows import ExperimentConfig, PipelineResult, TrainingPipelineWorkflow
+from interactors.temporal.workflows import ExperimentConfig, PipelineResult, TrainingPipelineWorkflow
 
 
 def _dry_run_patches(eval_passes: bool = True):

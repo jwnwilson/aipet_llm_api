@@ -25,8 +25,8 @@ async def _trigger(
 
     from temporalio.client import Client
 
-    from temporal.worker import TASK_QUEUE
-    from temporal.workflows import ExperimentConfig, TrainingPipelineWorkflow
+    from interactors.temporal.worker import TASK_QUEUE
+    from interactors.temporal.workflows import ExperimentConfig, TrainingPipelineWorkflow
 
     temporal_host = os.environ.get("TEMPORAL_HOST", "localhost:7233")
     client = await Client.connect(temporal_host)

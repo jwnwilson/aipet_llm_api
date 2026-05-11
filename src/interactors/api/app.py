@@ -45,14 +45,14 @@ def configure(adapter: InferencePort) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    from infrastructure.database import init_db, make_engine
-    from infrastructure.inference import LlamaCppInferenceAdapter
-    from infrastructure.models.model_store import SQLAlchemyModelStore
-    from infrastructure.models.run_store import SQLAlchemyRunStore
-    from infrastructure.storage import LocalStorageAdapter
-    from api.training_routes import configure_model_store
-    from api.training_routes import configure_run_store as configure_route_run_store
-    from temporal.activities import configure_run_store, configure_storage
+    from adapters.database import init_db, make_engine
+    from adapters.inference import LlamaCppInferenceAdapter
+    from adapters.database.model_store import SQLAlchemyModelStore
+    from adapters.database.run_store import SQLAlchemyRunStore
+    from adapters.storage import LocalStorageAdapter
+    from interactors.api.training_routes import configure_model_store
+    from interactors.api.training_routes import configure_run_store as configure_route_run_store
+    from interactors.temporal.activities import configure_run_store, configure_storage
 
     engine = make_engine()
     init_db(engine)
@@ -97,8 +97,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # Application
 # ---------------------------------------------------------------------------
 
-from api.routes import router  # noqa: E402
-from api.training_routes import router as training_router  # noqa: E402
+from interactors.api.routes import router  # noqa: E402
+from interactors.api.training_routes import router as training_router  # noqa: E402
 
 app = FastAPI(title="aipet-llm inference service", lifespan=lifespan)
 

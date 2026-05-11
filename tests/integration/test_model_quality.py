@@ -20,7 +20,7 @@ from domain.train.quality_report import (
     TARGET_ACCURACY_THRESHOLD,
     run_quality_report,
 )
-from infrastructure.inference import LlamaCppInferenceAdapter
+from adapters.inference import LlamaCppInferenceAdapter
 
 MODEL_PATH = Path(__file__).parents[2] / "models" / "aipet.gguf"
 

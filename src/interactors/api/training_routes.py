@@ -126,10 +126,10 @@ def activate_model(
             detail="Model has no exported GGUF yet — run a training pipeline first",
         )
 
-    from infrastructure.inference import LlamaCppInferenceAdapter
-    from infrastructure.storage import LocalStorageAdapter
-    from api.app import configure
-    from temporal.activities import _get_storage
+    from adapters.inference import LlamaCppInferenceAdapter
+    from adapters.storage import LocalStorageAdapter
+    from interactors.api.app import configure
+    from interactors.temporal.activities import _get_storage
 
     try:
         storage = _get_storage()
@@ -163,8 +163,8 @@ async def trigger_run(
 
     try:
         from temporalio.client import Client
-        from temporal.worker import TASK_QUEUE
-        from temporal.workflows import ExperimentConfig, TrainingPipelineWorkflow
+        from interactors.temporal.worker import TASK_QUEUE
+        from interactors.temporal.workflows import ExperimentConfig, TrainingPipelineWorkflow
 
         temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
         client = await Client.connect(temporal_host)
@@ -237,10 +237,10 @@ def activate_run(
             detail=f"Run has not completed successfully (status={run.status.value})",
         )
 
-    from infrastructure.inference import LlamaCppInferenceAdapter
-    from infrastructure.storage import LocalStorageAdapter
-    from api.app import configure
-    from temporal.activities import _get_storage
+    from adapters.inference import LlamaCppInferenceAdapter
+    from adapters.storage import LocalStorageAdapter
+    from interactors.api.app import configure
+    from interactors.temporal.activities import _get_storage
 
     try:
         storage = _get_storage()

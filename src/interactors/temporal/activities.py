@@ -175,13 +175,13 @@ async def generate_dataset_activity(config: DatasetConfig) -> DatasetPaths:
 
 def _make_remote_adapter(backend: str) -> RemoteTrainingPort:
     if backend == "kaggle":
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         return KaggleTrainingAdapter()
     if backend == "ssh":
-        from adapters.ssh_adapter import SshTrainingAdapter
+        from adapters.compute.ssh import SshTrainingAdapter
         return SshTrainingAdapter()
     if backend == "colab":
-        from adapters.colab.adapter import ColabTrainingAdapter
+        from adapters.compute.colab.adapter import ColabTrainingAdapter
         return ColabTrainingAdapter()
     raise ApplicationError(f"Unknown remote_backend: {backend!r}")
 

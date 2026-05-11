@@ -9,7 +9,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from temporal.activities import (
+from interactors.temporal.activities import (
     CheckpointPath,
     DatasetConfig,
     DatasetPaths,
@@ -161,7 +161,7 @@ async def test_evaluate_activity_raises_on_exception():
 @pytest.mark.asyncio
 async def test_export_activity_uses_pipeline_run_id_for_storage_key():
     from unittest.mock import MagicMock
-    from infrastructure.storage.local import LocalStorageAdapter
+    from adapters.storage.local import LocalStorageAdapter
 
     storage = MagicMock(spec=LocalStorageAdapter)
     configure_storage(storage)
@@ -184,7 +184,7 @@ async def test_export_activity_uses_pipeline_run_id_for_storage_key():
 @pytest.mark.asyncio
 async def test_export_activity_pipeline_run_id_takes_precedence_over_model_id():
     from unittest.mock import MagicMock
-    from infrastructure.storage.local import LocalStorageAdapter
+    from adapters.storage.local import LocalStorageAdapter
 
     storage = MagicMock(spec=LocalStorageAdapter)
     configure_storage(storage)
@@ -206,7 +206,7 @@ async def test_export_activity_pipeline_run_id_takes_precedence_over_model_id():
 @pytest.mark.asyncio
 async def test_export_activity_falls_back_to_model_id_when_no_pipeline_run_id():
     from unittest.mock import MagicMock
-    from infrastructure.storage.local import LocalStorageAdapter
+    from adapters.storage.local import LocalStorageAdapter
 
     storage = MagicMock(spec=LocalStorageAdapter)
     configure_storage(storage)
@@ -273,21 +273,21 @@ class TestTrainRemotePolling:
 
     @pytest.mark.asyncio
     async def test_calls_adapter_logs_each_poll(self, monkeypatch):
-        import temporal.activities as acts
+        import interactors.temporal.activities as acts
 
         adapter = self._make_adapter(["running", "done"])
         monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
         monkeypatch.setattr(acts.activity, "logger", MagicMock())
 
         config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
-        with patch("temporal.activities.asyncio.sleep"):
+        with patch("interactors.temporal.activities.asyncio.sleep"):
             await acts._train_remote(config, adapter)
 
         assert adapter.logs.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_heartbeat_is_dict_with_status_elapsed_and_logs(self, monkeypatch):
-        import temporal.activities as acts
+        import interactors.temporal.activities as acts
 
         adapter = self._make_adapter(["running", "done"])
         captured: list[dict] = []
@@ -295,7 +295,7 @@ class TestTrainRemotePolling:
         monkeypatch.setattr(acts.activity, "logger", MagicMock())
 
         config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
-        with patch("temporal.activities.asyncio.sleep"):
+        with patch("interactors.temporal.activities.asyncio.sleep"):
             await acts._train_remote(config, adapter)
 
         assert captured, "heartbeat should have been called"
@@ -307,7 +307,7 @@ class TestTrainRemotePolling:
 
     @pytest.mark.asyncio
     async def test_heartbeat_logs_field_is_empty_when_adapter_returns_none(self, monkeypatch):
-        import temporal.activities as acts
+        import interactors.temporal.activities as acts
 
         adapter = self._make_adapter(["done"], log_output="")
         captured: list[dict] = []
@@ -315,7 +315,7 @@ class TestTrainRemotePolling:
         monkeypatch.setattr(acts.activity, "logger", MagicMock())
 
         config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
-        with patch("temporal.activities.asyncio.sleep"):
+        with patch("interactors.temporal.activities.asyncio.sleep"):
             await acts._train_remote(config, adapter)
 
         assert captured[0]["logs"] == ""

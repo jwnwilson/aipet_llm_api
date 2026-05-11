@@ -29,7 +29,7 @@ sync: ## Install / sync all dependencies including dev groups
 	uv sync --all-extras --reinstall-package kaggle
 
 serve: .venv ## Start the FastAPI server  (MODEL_PATH=... make serve)
-	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run python -m uvicorn api.app:app \
+	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run python -m uvicorn interactors.api.app:app \
 		--host $(HOST) --port $(PORT) --reload
 
 test: .venv ## Run unit + CLI tests (fast; excludes integration)
@@ -48,14 +48,14 @@ test-all: .venv ## Run all tests including slow integration tests
 	uv run python -m pytest tests/ -v
 
 data: ## Generate synthetic training + eval data  (DATA_DIR=... to override output path)
-	PYTHONPATH=src uv run python src/cli/generate_dataset.py --data-dir $(DATA_DIR)
+	PYTHONPATH=src uv run python src/interactors/cli/generate_dataset.py --data-dir $(DATA_DIR)
 
 data-fast: ## Generate tiny dataset (20 train / 10 eval) into data/fast/
-	PYTHONPATH=src uv run python src/cli/generate_dataset.py \
+	PYTHONPATH=src uv run python src/interactors/cli/generate_dataset.py \
 		--data-dir $(FAST_DATA_DIR) --train-size 20 --eval-size 10
 
 train-fast: data-fast ## Smoke-test: tiny model + 20-example dataset + 1 training step  (FAST_MODEL=... to override)
-	PYTHONPATH=src uv run python src/cli/train.py \
+	PYTHONPATH=src uv run python src/interactors/cli/train.py \
 		--dry-run \
 		--model $(FAST_MODEL) \
 		--train-data $(FAST_DATA_DIR)/train.jsonl \
@@ -63,7 +63,7 @@ train-fast: data-fast ## Smoke-test: tiny model + 20-example dataset + 1 trainin
 		--output-dir models/checkpoints-test
 
 train: ## Fine-tune the model  (DRY_RUN=1 for smoke test, DATA_DIR/OUTPUT_DIR to override paths)
-	PYTHONPATH=src uv run python src/cli/train.py \
+	PYTHONPATH=src uv run python src/interactors/cli/train.py \
 		$(if $(DRY_RUN),--dry-run) \
 		--train-data $(DATA_DIR)/train.jsonl \
 		--eval-data $(DATA_DIR)/eval.jsonl \
@@ -71,11 +71,11 @@ train: ## Fine-tune the model  (DRY_RUN=1 for smoke test, DATA_DIR/OUTPUT_DIR to
 		--model $(MODEL)
 
 evaluate: ## Evaluate HF checkpoint response rate  (CHECKPOINT=... to override)
-	PYTHONPATH=src uv run python src/cli/evaluate.py \
+	PYTHONPATH=src uv run python src/interactors/cli/evaluate.py \
 		--checkpoint $(CHECKPOINT) --eval-data $(DATA_DIR)/eval.jsonl
 
 evaluate-gguf: ## Evaluate quantised GGUF model  (MODEL_PATH=... to override)
-	PYTHONPATH=src uv run python src/cli/evaluate.py \
+	PYTHONPATH=src uv run python src/interactors/cli/evaluate.py \
 		--model-path $(MODEL_PATH) --eval-data $(DATA_DIR)/eval.jsonl
 
 setup-llama: ## Clone and build llama.cpp (required for make export)
@@ -89,10 +89,10 @@ setup-llama: ## Clone and build llama.cpp (required for make export)
 	@echo "\nllama.cpp ready — run 'make export' to convert your checkpoint."
 
 export: ## Convert HF checkpoint → GGUF Q4_K_M  → models/aipet.gguf
-	PYTHONPATH=src uv run python src/cli/export.py
+	PYTHONPATH=src uv run python src/interactors/cli/export.py
 
 infer: ## Run a single inference from the CLI  (MODEL_PATH=... make infer)
-	PYTHONPATH=src uv run python src/cli/infer.py --model-path $(MODEL_PATH) < $(or $(INPUT),/dev/stdin)
+	PYTHONPATH=src uv run python src/interactors/cli/infer.py --model-path $(MODEL_PATH) < $(or $(INPUT),/dev/stdin)
 
 docker-build: ## Build the ARM64 Docker image  (IMAGE=... to override tag)
 	docker buildx build --platform linux/arm64 -t $(IMAGE):latest --load .
@@ -118,10 +118,10 @@ temporal-down: ## Stop Temporal server and worker
 	docker compose down temporal temporal-ui temporal-db temporal-worker
 
 temporal-worker: ## Run the Temporal activity worker locally  (requires Temporal server)
-	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python -m temporal.worker
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python -m interactors.temporal.worker
 
 temporal-trigger-fast: ## Trigger a fast smoke-test pipeline via Temporal  (tiny model + 20 examples + 1 step, local backend)
-	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/cli/trigger_training.py \
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
 		--experiment-name aipet-fast-test \
 		--model $(FAST_MODEL) \
 		--train-size 20 \
@@ -130,7 +130,7 @@ temporal-trigger-fast: ## Trigger a fast smoke-test pipeline via Temporal  (tiny
 		--remote-backend kaggle
 
 temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS / PATIENCE / REMOTE_BACKEND / MODEL / SKIP_GENERATE=1)
-	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/cli/trigger_training.py \
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -139,7 +139,7 @@ temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS 
 		$(if $(SKIP_GENERATE),--skip-generate)
 
 kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
-	PYTHONPATH=src uv run python src/cli/trigger_training.py \
+	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -148,7 +148,7 @@ kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIE
 		$(if $(SKIP_GENERATE),--skip-generate)
 
 colab-train: ## Trigger a Google Colab training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
-	PYTHONPATH=src uv run python src/cli/trigger_training.py \
+	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -165,7 +165,7 @@ kaggle-notebook-local: ## Simulate full Kaggle notebook locally: stage dataset t
 	@echo "--- Running all notebook cells locally ---"
 	EXPERIMENT=$(EXPERIMENT) MODEL=$(MODEL) \
 	KAGGLE_INPUT_BASE=/tmp/kaggle-sim/input/$(EXPERIMENT)-data \
-		uv run python src/cli/run_notebook_local.py
+		uv run python src/interactors/cli/run_notebook_local.py
 	@echo "--- Local Kaggle notebook simulation passed ---"
 
 request: ## Send a test /infer request to the running API server  (HOST/PORT to override)

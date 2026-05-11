@@ -73,7 +73,7 @@ def export(
 
     print(f"\nVerifying GGUF loads: {output} …")
     try:
-        from infrastructure.inference import LlamaCppInferenceAdapter
+        from adapters.inference import LlamaCppInferenceAdapter
         LlamaCppInferenceAdapter(model_path=str(output))
         print("  LlamaCppInferenceAdapter instantiated successfully (lazy load).")
     except ImportError as exc:

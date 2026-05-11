@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from domain.models import RunConfig, RunRecord, RunStatus
 from domain.ports import RunStorePort
-from infrastructure.database import Base
+from adapters.database import Base
 
 
 class _RunRow(Base):

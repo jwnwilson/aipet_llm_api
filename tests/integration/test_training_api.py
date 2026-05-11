@@ -13,11 +13,11 @@ from httpx import ASGITransport
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
-from api.app import app
-from api.training_routes import configure_model_store, configure_run_store, get_model_store, get_run_store
-from infrastructure.database import Base, init_db
-from infrastructure.models.model_store import SQLAlchemyModelStore
-from infrastructure.models.run_store import SQLAlchemyRunStore
+from interactors.api.app import app
+from interactors.api.training_routes import configure_model_store, configure_run_store, get_model_store, get_run_store
+from adapters.database import Base, init_db
+from adapters.database.model_store import SQLAlchemyModelStore
+from adapters.database.run_store import SQLAlchemyRunStore
 
 # ---------------------------------------------------------------------------
 # Fixtures

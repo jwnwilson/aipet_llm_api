@@ -15,7 +15,7 @@ from domain.models import (
     SceneData,
     SceneObject,
 )
-from infrastructure.inference import LlamaCppInferenceAdapter
+from adapters.inference import LlamaCppInferenceAdapter
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -63,11 +63,11 @@ class TestLlamaCppInferenceAdapter:
 
         with patch("llama_cpp.Llama", return_value=mock_llm_instance) as mock_llama_cls:
             with patch(
-                "infrastructure.inference.build_prompt",
+                "adapters.inference.build_prompt",
                 return_value="<prompt>",
             ):
                 with patch(
-                    "infrastructure.inference.parse_response",
+                    "adapters.inference.parse_response",
                     return_value=InferenceResponse(
                         action=Action.IDLE, target_object_id=None
                     ),
@@ -83,7 +83,7 @@ class TestLlamaCppInferenceAdapter:
     ) -> None:
         """Adapter swallows exceptions and returns IDLE instead of propagating."""
         with patch(
-            "infrastructure.inference.build_prompt", return_value="<prompt>"
+            "adapters.inference.build_prompt", return_value="<prompt>"
         ):
             with patch("llama_cpp.Llama", side_effect=RuntimeError("model not found")):
                 adapter = _make_adapter()
@@ -101,10 +101,10 @@ class TestLlamaCppInferenceAdapter:
 
         with patch("llama_cpp.Llama", return_value=mock_llm_instance):
             with patch(
-                "infrastructure.inference.build_prompt", return_value="<prompt>"
+                "adapters.inference.build_prompt", return_value="<prompt>"
             ):
                 with patch(
-                    "infrastructure.inference.parse_response",
+                    "adapters.inference.parse_response",
                     side_effect=ValueError("bad JSON"),
                 ):
                     adapter = _make_adapter()
@@ -119,10 +119,10 @@ class TestLlamaCppInferenceAdapter:
             mock_llama_cls.assert_not_called()  # not yet loaded
 
             with patch(
-                "infrastructure.inference.build_prompt", return_value="<prompt>"
+                "adapters.inference.build_prompt", return_value="<prompt>"
             ):
                 with patch(
-                    "infrastructure.inference.parse_response",
+                    "adapters.inference.parse_response",
                     return_value=InferenceResponse(
                         action=Action.IDLE, target_object_id=None
                     ),
@@ -157,10 +157,10 @@ class TestLlamaCppInferenceAdapter:
 
         with patch("llama_cpp.Llama", return_value=mock_llm_instance) as mock_llama_cls:
             with patch(
-                "infrastructure.inference.build_prompt", return_value="<prompt>"
+                "adapters.inference.build_prompt", return_value="<prompt>"
             ):
                 with patch(
-                    "infrastructure.inference.parse_response",
+                    "adapters.inference.parse_response",
                     return_value=InferenceResponse(
                         action=Action.IDLE, target_object_id=None
                     ),

@@ -8,7 +8,7 @@ import os
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from temporal.activities import (
+from interactors.temporal.activities import (
     configure_model_store,
     configure_run_store,
     configure_storage,
@@ -19,16 +19,16 @@ from temporal.activities import (
     save_gguf_path_activity,
     train_activity,
 )
-from temporal.workflows import TrainingPipelineWorkflow
+from interactors.temporal.workflows import TrainingPipelineWorkflow
 
 TASK_QUEUE = "aipet-training"
 
 
 async def main() -> None:
-    from infrastructure.database import init_db, make_engine
-    from infrastructure.models.model_store import SQLAlchemyModelStore
-    from infrastructure.models.run_store import SQLAlchemyRunStore
-    from infrastructure.storage import LocalStorageAdapter
+    from adapters.database import init_db, make_engine
+    from adapters.database.model_store import SQLAlchemyModelStore
+    from adapters.database.run_store import SQLAlchemyRunStore
+    from adapters.storage import LocalStorageAdapter
 
     engine = make_engine()
     init_db(engine)

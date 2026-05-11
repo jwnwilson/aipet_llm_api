@@ -10,8 +10,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from domain.models import TrainingModel, TrainingModelConfig
 from domain.ports import ModelStorePort
-from infrastructure.database import Base
-from infrastructure.database.crud import CRUDRepository
+from adapters.database import Base
+from adapters.database.crud import CRUDRepository
 
 
 class _TrainingModelRow(Base):

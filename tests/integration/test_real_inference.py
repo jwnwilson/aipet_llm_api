@@ -8,8 +8,8 @@ import pytest
 
 from domain.actions import Action
 from domain.models import InferenceRequest, PetStats, SceneData, SceneObject
-from infrastructure.inference import LlamaCppInferenceAdapter
-from infrastructure.prompt import parse_response
+from adapters.inference import LlamaCppInferenceAdapter
+from adapters.prompt import parse_response
 
 MODEL_PATH = Path(__file__).parents[2] / "models" / "aipet.gguf"
 
@@ -23,7 +23,7 @@ _TARGET_REQUIRED = {Action.EAT, Action.DRINK, Action.PLAY, Action.FETCH,
                     Action.SLEEP, Action.SOCIAL, Action.FOLLOW}
 
 # Patch target: the name as imported inside inference.py, not its definition site.
-_PARSE_RESPONSE = "infrastructure.inference.parse_response"
+_PARSE_RESPONSE = "adapters.inference.parse_response"
 
 
 def _adapter() -> LlamaCppInferenceAdapter:

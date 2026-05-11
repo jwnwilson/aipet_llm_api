@@ -56,11 +56,11 @@ class TestKaggleAdapterSubmit:
     def _patch_no_wait(self, monkeypatch) -> None:
         """Skip Kaggle-CLI detection and Python-API polling (not installed in dev)."""
         monkeypatch.setattr(
-            "adapters.kaggle.adapter._kaggle_bin",
+            "adapters.compute.kaggle.adapter._kaggle_bin",
             lambda: "kaggle",
         )
         monkeypatch.setattr(
-            "adapters.kaggle.adapter.KaggleTrainingAdapter._wait_for_dataset",
+            "adapters.compute.kaggle.adapter.KaggleTrainingAdapter._wait_for_dataset",
             lambda *a, **kw: None,
         )
 
@@ -77,9 +77,9 @@ class TestKaggleAdapterSubmit:
                 return _fail()
             return _ok()
 
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", fake_run)
 
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         adapter.submit(_config())
 
@@ -98,9 +98,9 @@ class TestKaggleAdapterSubmit:
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", fake_run)
 
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         adapter.submit(_config())
 
@@ -110,9 +110,9 @@ class TestKaggleAdapterSubmit:
     def test_returns_slug_with_username(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "myuser")
         self._patch_no_wait(monkeypatch)
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         slug = adapter.submit(_config(experiment_name="myexp"))
 
@@ -121,9 +121,9 @@ class TestKaggleAdapterSubmit:
     def test_renders_notebook_with_config(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
         self._patch_no_wait(monkeypatch)
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         cfg = _config(experiment_name="render-test", epochs=7)
         adapter.submit(cfg)
@@ -137,9 +137,9 @@ class TestKaggleAdapterSubmit:
     def test_writes_kernel_metadata(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
         self._patch_no_wait(monkeypatch)
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         adapter.submit(_config(experiment_name="meta-test"))
 
@@ -153,12 +153,12 @@ class TestKaggleAdapterSubmit:
 class TestKaggleAdapterStatus:
     def _status(self, stdout: str, monkeypatch, tmp_path) -> str:
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
         monkeypatch.setattr(
-            "adapters.kaggle.adapter.subprocess.run",
+            "adapters.compute.kaggle.adapter.subprocess.run",
             lambda *a, **kw: _ok(stdout),
         )
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         return KaggleTrainingAdapter(work_dir=tmp_path).status("testuser/exp")
 
     def test_complete_maps_to_done(self, tmp_path, monkeypatch):
@@ -180,7 +180,7 @@ class TestKaggleAdapterStatus:
 class TestKaggleAdapterDownload:
     def test_calls_kernels_output(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
 
         calls: list[list[str]] = []
 
@@ -188,9 +188,9 @@ class TestKaggleAdapterDownload:
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", fake_run)
 
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         adapter = KaggleTrainingAdapter(work_dir=tmp_path)
         result = adapter.download("testuser/exp", tmp_path / "dest")
 
@@ -199,8 +199,8 @@ class TestKaggleAdapterDownload:
 
     def test_unpacks_archive_if_present(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
 
         import tarfile
         dest = tmp_path / "dest"
@@ -211,7 +211,7 @@ class TestKaggleAdapterDownload:
         with tarfile.open(archive, "w:gz") as tf:
             tf.add(marker, arcname="marker.txt")
 
-        from adapters.kaggle import KaggleTrainingAdapter
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         KaggleTrainingAdapter(work_dir=tmp_path).download("testuser/exp", dest)
 
         assert not archive.exists(), "Archive should be deleted after extraction"
@@ -221,37 +221,37 @@ class TestKaggleAdapterDownload:
 class TestKaggleAdapterLogs:
     def test_returns_kernels_status_output(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
 
         def fake_run(cmd, **kw):
             return _ok('testuser/exp has status "running"')
 
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
-        from adapters.kaggle import KaggleTrainingAdapter
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", fake_run)
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         result = KaggleTrainingAdapter(work_dir=tmp_path).logs("testuser/exp")
 
         assert "running" in result
 
     def test_calls_kernels_status_command(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
         calls: list[list[str]] = []
 
         def fake_run(cmd, **kw):
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", fake_run)
-        from adapters.kaggle import KaggleTrainingAdapter
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", fake_run)
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         KaggleTrainingAdapter(work_dir=tmp_path).logs("testuser/exp")
 
         assert any("status" in c for cmd in calls for c in cmd)
 
     def test_returns_empty_string_when_no_output(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
-        monkeypatch.setattr("adapters.kaggle.adapter._kaggle_bin", lambda: "kaggle")
-        monkeypatch.setattr("adapters.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok(""))
-        from adapters.kaggle import KaggleTrainingAdapter
+        monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok(""))
+        from adapters.compute.kaggle import KaggleTrainingAdapter
         assert KaggleTrainingAdapter(work_dir=tmp_path).logs("testuser/exp") == ""
 
 
@@ -266,7 +266,7 @@ class TestSshAdapterSubmit:
         monkeypatch.setenv("REMOTE_USER", "ubuntu")
         monkeypatch.setenv("REMOTE_KEY_PATH", "/home/user/.ssh/id_rsa")
         monkeypatch.setenv("REMOTE_WORK_DIR", "/app")
-        from adapters.ssh_adapter import SshTrainingAdapter
+        from adapters.compute.ssh import SshTrainingAdapter
         return SshTrainingAdapter()
 
     def test_calls_rsync_for_src(self, monkeypatch):
@@ -277,7 +277,7 @@ class TestSshAdapterSubmit:
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.ssh_adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.compute.ssh.subprocess.run", fake_run)
         adapter.submit(_config())
 
         rsync_calls = [c for c in calls if c[0] == "rsync"]
@@ -293,7 +293,7 @@ class TestSshAdapterSubmit:
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.ssh_adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.compute.ssh.subprocess.run", fake_run)
         adapter.submit(_config(experiment_name="my-exp"))
 
         ssh_calls = [c for c in calls if c[0] == "ssh"]
@@ -304,7 +304,7 @@ class TestSshAdapterSubmit:
 
     def test_returns_session_name(self, monkeypatch):
         adapter = self._make_adapter(monkeypatch)
-        monkeypatch.setattr("adapters.ssh_adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setattr("adapters.compute.ssh.subprocess.run", lambda *a, **kw: _ok())
         run_id = adapter.submit(_config(experiment_name="sess-exp"))
         assert "sess-exp" in run_id
 
@@ -315,13 +315,13 @@ class TestSshAdapterStatus:
         monkeypatch.setenv("REMOTE_USER", "ubuntu")
         monkeypatch.setenv("REMOTE_KEY_PATH", "")
         monkeypatch.setenv("REMOTE_WORK_DIR", "/app")
-        from adapters.ssh_adapter import SshTrainingAdapter
+        from adapters.compute.ssh import SshTrainingAdapter
         return SshTrainingAdapter()
 
     def test_running_when_screen_session_alive(self, monkeypatch):
         adapter = self._make_adapter(monkeypatch)
         monkeypatch.setattr(
-            "adapters.ssh_adapter.subprocess.run",
+            "adapters.compute.ssh.subprocess.run",
             lambda *a, **kw: _ok("aipet-my-exp\t(Detached)"),
         )
         assert adapter.status("aipet-my-exp") == "running"
@@ -330,7 +330,7 @@ class TestSshAdapterStatus:
         adapter = self._make_adapter(monkeypatch)
         responses = iter([_ok("No Sockets found"), _ok("exists")])
         monkeypatch.setattr(
-            "adapters.ssh_adapter.subprocess.run",
+            "adapters.compute.ssh.subprocess.run",
             lambda *a, **kw: next(responses),
         )
         assert adapter.status("aipet-my-exp") == "done"
@@ -339,7 +339,7 @@ class TestSshAdapterStatus:
         adapter = self._make_adapter(monkeypatch)
         responses = iter([_ok("No Sockets found"), _ok("")])
         monkeypatch.setattr(
-            "adapters.ssh_adapter.subprocess.run",
+            "adapters.compute.ssh.subprocess.run",
             lambda *a, **kw: next(responses),
         )
         assert adapter.status("aipet-my-exp") == "failed"
@@ -357,9 +357,9 @@ class TestSshAdapterDownload:
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.ssh_adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.compute.ssh.subprocess.run", fake_run)
 
-        from adapters.ssh_adapter import SshTrainingAdapter
+        from adapters.compute.ssh import SshTrainingAdapter
         adapter = SshTrainingAdapter()
         tmp = Path("/tmp/ckpt")
         result = adapter.download("aipet-exp", tmp)
@@ -376,13 +376,13 @@ class TestSshAdapterLogs:
         monkeypatch.setenv("REMOTE_USER", "ubuntu")
         monkeypatch.setenv("REMOTE_KEY_PATH", "")
         monkeypatch.setenv("REMOTE_WORK_DIR", "/app")
-        from adapters.ssh_adapter import SshTrainingAdapter
+        from adapters.compute.ssh import SshTrainingAdapter
         return SshTrainingAdapter()
 
     def test_returns_remote_log_output(self, monkeypatch):
         adapter = self._make_adapter(monkeypatch)
         monkeypatch.setattr(
-            "adapters.ssh_adapter.subprocess.run",
+            "adapters.compute.ssh.subprocess.run",
             lambda *a, **kw: _ok("step 10/200 loss=1.23\nstep 20/200 loss=1.10"),
         )
         result = adapter.logs("aipet-my-exp")
@@ -396,7 +396,7 @@ class TestSshAdapterLogs:
             calls.append(list(cmd))
             return _ok()
 
-        monkeypatch.setattr("adapters.ssh_adapter.subprocess.run", fake_run)
+        monkeypatch.setattr("adapters.compute.ssh.subprocess.run", fake_run)
         adapter.logs("aipet-my-exp")
 
         ssh_calls = [c for c in calls if "ssh" in c]
@@ -418,18 +418,18 @@ class TestTrainActivityRouting:
         return asyncio.get_event_loop().run_until_complete(coro)
 
     def test_local_backend_calls_train_domain_function(self, monkeypatch):
-        import temporal.activities as acts
+        import interactors.temporal.activities as acts
 
         called = {}
 
         async def fake_local(config):
             called["config"] = config
-            from temporal.activities import CheckpointPath
+            from interactors.temporal.activities import CheckpointPath
             return CheckpointPath(path="models/checkpoints")
 
         monkeypatch.setattr(acts, "_train_local", fake_local)
 
-        from temporal.activities import TrainConfig, train_activity
+        from interactors.temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="")
         result = self._run(train_activity(config))
         assert called.get("config") is not None
@@ -437,64 +437,64 @@ class TestTrainActivityRouting:
 
     def test_kaggle_backend_routes_to_kaggle_adapter(self, monkeypatch):
 
-        import temporal.activities as acts
+        import interactors.temporal.activities as acts
 
         submitted = {}
 
         async def fake_remote(config, adapter):
             submitted["adapter"] = type(adapter).__name__
-            from temporal.activities import CheckpointPath
+            from interactors.temporal.activities import CheckpointPath
             return CheckpointPath(path="models/checkpoints")
 
         monkeypatch.setattr(acts, "_train_remote", fake_remote)
 
-        from temporal.activities import TrainConfig, train_activity
+        from interactors.temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="kaggle")
         self._run(train_activity(config))
         assert submitted["adapter"] == "KaggleTrainingAdapter"
 
     def test_ssh_backend_routes_to_ssh_adapter(self, monkeypatch):
-        import temporal.activities as acts
+        import interactors.temporal.activities as acts
 
         submitted = {}
 
         async def fake_remote(config, adapter):
             submitted["adapter"] = type(adapter).__name__
-            from temporal.activities import CheckpointPath
+            from interactors.temporal.activities import CheckpointPath
             return CheckpointPath(path="models/checkpoints")
 
         monkeypatch.setattr(acts, "_train_remote", fake_remote)
 
-        from temporal.activities import TrainConfig, train_activity
+        from interactors.temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="ssh")
         self._run(train_activity(config))
         assert submitted["adapter"] == "SshTrainingAdapter"
 
     def test_unknown_backend_raises_application_error(self):
         from temporalio.exceptions import ApplicationError
-        from temporal.activities import TrainConfig, train_activity
+        from interactors.temporal.activities import TrainConfig, train_activity
 
         config = TrainConfig(remote_backend="gcp")
         with pytest.raises(ApplicationError, match="Unknown remote_backend"):
             self._run(train_activity(config))
 
     def test_colab_backend_routes_to_colab_adapter(self, monkeypatch):
-        import temporal.activities as acts
+        import interactors.temporal.activities as acts
 
         submitted: dict = {}
 
         async def fake_remote(config, adapter):
             submitted["adapter"] = type(adapter).__name__
-            from temporal.activities import CheckpointPath
+            from interactors.temporal.activities import CheckpointPath
             return CheckpointPath(path="models/checkpoints")
 
         monkeypatch.setattr(acts, "_train_remote", fake_remote)
         monkeypatch.setattr(
-            "adapters.colab.adapter.ColabTrainingAdapter._build_drive_client",
+            "adapters.compute.colab.adapter.ColabTrainingAdapter._build_drive_client",
             lambda self: MagicMock(),
         )
 
-        from temporal.activities import TrainConfig, train_activity
+        from interactors.temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="colab")
         self._run(train_activity(config))
         assert submitted["adapter"] == "ColabTrainingAdapter"
@@ -526,10 +526,10 @@ def _make_status_downloader(content: bytes):
 class TestColabAdapterSubmit:
     def _make_adapter(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "adapters.colab.adapter.ColabTrainingAdapter._build_drive_client",
+            "adapters.compute.colab.adapter.ColabTrainingAdapter._build_drive_client",
             lambda self: MagicMock(),
         )
-        from adapters.colab.adapter import ColabTrainingAdapter
+        from adapters.compute.colab.adapter import ColabTrainingAdapter
 
         adapter = ColabTrainingAdapter(work_dir=tmp_path)
         drive = adapter._drive
@@ -550,7 +550,7 @@ class TestColabAdapterSubmit:
         )
 
     def _patch_io(self, monkeypatch):
-        monkeypatch.setattr("adapters.colab.adapter.subprocess.run", lambda *a, **kw: _ok())
+        monkeypatch.setattr("adapters.compute.colab.adapter.subprocess.run", lambda *a, **kw: _ok())
         monkeypatch.setattr("googleapiclient.http.MediaFileUpload", MagicMock)
 
     def test_returns_non_empty_string_run_id(self, tmp_path, monkeypatch):
@@ -610,10 +610,10 @@ class TestColabAdapterSubmit:
 class TestColabAdapterStatus:
     def _make_adapter(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "adapters.colab.adapter.ColabTrainingAdapter._build_drive_client",
+            "adapters.compute.colab.adapter.ColabTrainingAdapter._build_drive_client",
             lambda self: MagicMock(),
         )
-        from adapters.colab.adapter import ColabTrainingAdapter
+        from adapters.compute.colab.adapter import ColabTrainingAdapter
 
         return ColabTrainingAdapter(work_dir=tmp_path)
 
@@ -667,10 +667,10 @@ class TestColabAdapterStatus:
 class TestColabAdapterDownload:
     def _make_adapter(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "adapters.colab.adapter.ColabTrainingAdapter._build_drive_client",
+            "adapters.compute.colab.adapter.ColabTrainingAdapter._build_drive_client",
             lambda self: MagicMock(),
         )
-        from adapters.colab.adapter import ColabTrainingAdapter
+        from adapters.compute.colab.adapter import ColabTrainingAdapter
 
         return ColabTrainingAdapter(work_dir=tmp_path)
 
@@ -736,7 +736,7 @@ class TestColabNotebookTemplate:
         import json
         from pathlib import Path
 
-        path = Path(__file__).parents[2] / "src/adapters/colab/notebook_template.ipynb"
+        path = Path(__file__).parents[2] / "src/adapters/compute/colab/notebook_template.ipynb"
         return json.loads(path.read_text())
 
     def _all_source(self, template: dict) -> str:

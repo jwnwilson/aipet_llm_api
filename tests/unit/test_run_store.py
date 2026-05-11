@@ -9,8 +9,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from domain.models import RunConfig, RunStatus
-from infrastructure.database import Base, init_db
-from infrastructure.models.run_store import SQLAlchemyRunStore
+from adapters.database import Base, init_db
+from adapters.database.run_store import SQLAlchemyRunStore
 
 
 @pytest.fixture()

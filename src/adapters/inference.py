@@ -10,7 +10,7 @@ import llama_cpp
 from domain.actions import Action
 from domain.models import InferenceRequest, InferenceResponse
 from domain.ports import InferencePort
-from infrastructure.prompt import build_prompt, parse_response
+from adapters.prompt import build_prompt, parse_response
 
 logger = logging.getLogger(__name__)
 

@@ -12,7 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
-from infrastructure.database.crud import CRUDRepository
+from adapters.database.crud import CRUDRepository
 
 # ---------------------------------------------------------------------------
 # Minimal test schema — isolated from the application's Base

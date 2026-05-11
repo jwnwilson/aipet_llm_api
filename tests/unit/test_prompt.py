@@ -4,7 +4,7 @@ import pytest
 
 from domain.actions import Action
 from domain.models import InferenceRequest, InferenceResponse, PetStats, SceneData, SceneObject
-from infrastructure.prompt import build_prompt, parse_response
+from adapters.prompt import build_prompt, parse_response
 
 # ---------------------------------------------------------------------------
 # Helpers
