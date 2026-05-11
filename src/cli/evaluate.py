@@ -18,6 +18,10 @@ from domain.train.evaluate import (
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Evaluate schema-valid response rate.")
+    parser.add_argument(
+        "--run-id", default=None, dest="run_id",
+        help="Evaluate a specific pipeline run by UUID — derives checkpoint and eval-data paths",
+    )
     parser.add_argument("--checkpoint", default="models/checkpoints")
     parser.add_argument("--eval-data", default="data/eval.jsonl", dest="eval_data")
     parser.add_argument(
@@ -36,6 +40,10 @@ def main(argv: list[str] | None = None) -> None:
         help="Path to write the JSON quality report (only used with --quality)",
     )
     args = parser.parse_args(argv)
+
+    if args.run_id:
+        args.checkpoint = f"data/workflow/{args.run_id}/checkpoint"
+        args.eval_data = f"data/workflow/{args.run_id}/eval.jsonl"
 
     eval_data = Path(args.eval_data)
     if not eval_data.exists():

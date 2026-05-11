@@ -14,9 +14,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from api.app import app
-from api.training_routes import configure_model_store, get_model_store
-from infrastructure.database import Base
+from api.training_routes import configure_model_store, configure_run_store, get_model_store, get_run_store
+from infrastructure.database import Base, init_db
 from infrastructure.models.model_store import SQLAlchemyModelStore
+from infrastructure.models.run_store import SQLAlchemyRunStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -43,9 +44,11 @@ async def client():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(engine)
+    init_db(engine)
     store = SQLAlchemyModelStore(engine)
+    run_store = SQLAlchemyRunStore(engine)
     app.dependency_overrides[get_model_store] = lambda: store
+    app.dependency_overrides[get_run_store] = lambda: run_store
     async with httpx.AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as c:
@@ -228,12 +231,17 @@ class TestTriggerRun:
         client, model_id = client_with_model
         connect_mock, temporal_client = _make_temporal_mock()
 
-        with patch("temporalio.client.Client.connect", connect_mock):
+        with (
+            patch("temporalio.client.Client.connect", connect_mock),
+            patch("pathlib.Path.mkdir"),
+        ):
             resp = await client.post(f"/api/models/{model_id}/trigger")
 
         assert resp.status_code == 202
         body = resp.json()
         assert "workflow_id" in body
+        assert "run_id" in body
+        assert len(body["run_id"]) == 36  # UUID format
         temporal_client.start_workflow.assert_called_once()
 
     @pytest.mark.asyncio
@@ -258,30 +266,26 @@ class TestTriggerRun:
 
 class TestListRuns:
     @pytest.mark.asyncio
-    async def test_returns_workflow_list_from_temporal(self, client):
-        wf = MagicMock()
-        wf.id = "training-foo-abc12345"
-        wf.run_id = "run-uuid"
-        wf.status = MagicMock()
-        wf.status.name = "RUNNING"
-        wf.start_time = None
-        wf.close_time = None
-
-        async def _fake_list(*_args, **_kwargs):
-            yield wf
-
-        temporal_client = AsyncMock()
-        temporal_client.list_workflows = _fake_list
-        connect_mock = AsyncMock(return_value=temporal_client)
-
-        with patch("temporalio.client.Client.connect", connect_mock):
-            resp = await client.get("/api/runs")
-
+    async def test_returns_empty_list_when_no_runs(self, client):
+        resp = await client.get("/api/runs")
         assert resp.status_code == 200
-        runs = resp.json()
-        assert len(runs) == 1
-        assert runs[0]["workflow_id"] == "training-foo-abc12345"
-        assert runs[0]["status"] == "RUNNING"
+        assert resp.json() == []
+
+    @pytest.mark.asyncio
+    async def test_returns_runs_from_db(self, client_with_model):
+        client, model_id = client_with_model
+        connect_mock, _ = _make_temporal_mock()
+
+        with (
+            patch("temporalio.client.Client.connect", connect_mock),
+            patch("pathlib.Path.mkdir"),
+        ):
+            await client.post(f"/api/models/{model_id}/trigger")
+            await client.post(f"/api/models/{model_id}/trigger")
+
+        resp = await client.get("/api/runs")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -290,32 +294,23 @@ class TestListRuns:
 
 class TestGetRun:
     @pytest.mark.asyncio
-    async def test_known_workflow_id_returns_status(self, client):
-        desc = MagicMock()
-        desc.run_id = "run-uuid"
-        desc.status = MagicMock()
-        desc.status.name = "COMPLETED"
-        desc.start_time = None
-        desc.close_time = None
+    async def test_known_run_id_returns_record(self, client_with_model):
+        client, model_id = client_with_model
+        connect_mock, _ = _make_temporal_mock()
 
-        handle = AsyncMock()
-        handle.describe = AsyncMock(return_value=desc)
+        with (
+            patch("temporalio.client.Client.connect", connect_mock),
+            patch("pathlib.Path.mkdir"),
+        ):
+            resp = await client.post(f"/api/models/{model_id}/trigger")
+        run_id = resp.json()["run_id"]
 
-        temporal_client = AsyncMock()
-        temporal_client.get_workflow_handle = MagicMock(return_value=handle)
-        connect_mock = AsyncMock(return_value=temporal_client)
-
-        with patch("temporalio.client.Client.connect", connect_mock):
-            resp = await client.get("/api/runs/training-foo-abc12345")
-
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "COMPLETED"
+        get_resp = await client.get(f"/api/runs/{run_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["id"] == run_id
+        assert get_resp.json()["status"] == "pending"
 
     @pytest.mark.asyncio
-    async def test_temporal_error_returns_404(self, client):
-        connect_mock = AsyncMock(side_effect=RuntimeError("not found"))
-
-        with patch("temporalio.client.Client.connect", connect_mock):
-            resp = await client.get("/api/runs/does-not-exist")
-
+    async def test_unknown_run_id_returns_404(self, client):
+        resp = await client.get("/api/runs/does-not-exist")
         assert resp.status_code == 404

@@ -16,20 +16,20 @@ MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 FAST_MODEL      ?= HuggingFaceTB/SmolLM2-135M
 FAST_DATA_DIR   ?= data/fast
 
-.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train help
+.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train colab-train help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
 .venv:
-	uv sync --all-extras
+	uv sync --all-extras --reinstall-package kaggle
 
 sync: ## Install / sync all dependencies including dev groups
-	uv sync --all-extras
+	uv sync --all-extras --reinstall-package kaggle
 
-serve: ## Start the FastAPI server  (MODEL_PATH=... make serve)
-	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run uvicorn api.app:app \
+serve: .venv ## Start the FastAPI server  (MODEL_PATH=... make serve)
+	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run python -m uvicorn api.app:app \
 		--host $(HOST) --port $(PORT) --reload
 
 test: .venv ## Run unit + CLI tests (fast; excludes integration)
@@ -126,8 +126,6 @@ temporal-trigger-fast: ## Trigger a fast smoke-test pipeline via Temporal  (tiny
 		--model $(FAST_MODEL) \
 		--train-size 20 \
 		--eval-size 10 \
-		--data-dir $(FAST_DATA_DIR) \
-		--output-dir models/checkpoints-test \
 		--dry-run \
 		--remote-backend kaggle
 
@@ -146,6 +144,15 @@ kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIE
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
 		--remote-backend kaggle \
+		--model $(MODEL) \
+		$(if $(SKIP_GENERATE),--skip-generate)
+
+colab-train: ## Trigger a Google Colab training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
+	PYTHONPATH=src uv run python src/cli/trigger_training.py \
+		--experiment-name $(EXPERIMENT) \
+		--epochs $(EPOCHS) \
+		--patience $(PATIENCE) \
+		--remote-backend colab \
 		--model $(MODEL) \
 		$(if $(SKIP_GENERATE),--skip-generate)
 

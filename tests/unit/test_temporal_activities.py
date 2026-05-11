@@ -15,9 +15,11 @@ from temporal.activities import (
     DatasetPaths,
     EvalConfig,
     EvalResult,
+    ExportConfig,
     GGUFPath,
     TrainConfig,
     _parse_valid_pct,
+    configure_storage,
     evaluate_activity,
     export_activity,
     generate_dataset_activity,
@@ -157,29 +159,86 @@ async def test_evaluate_activity_raises_on_exception():
 
 
 @pytest.mark.asyncio
-async def test_export_activity_delegates_to_domain():
-    with patch("domain.train.export.export") as mock_export:
-        result = await ENV.run(export_activity, CheckpointPath(path="models/checkpoints"))
+async def test_export_activity_uses_pipeline_run_id_for_storage_key():
+    from unittest.mock import MagicMock
+    from infrastructure.storage.local import LocalStorageAdapter
 
-    mock_export.assert_called_once_with(
-        checkpoint=Path("models/checkpoints"),
-        output=Path("models/aipet.gguf"),
-    )
-    assert result == GGUFPath(path="models/aipet.gguf")
+    storage = MagicMock(spec=LocalStorageAdapter)
+    configure_storage(storage)
+
+    with patch("domain.train.export.export"):
+        result = await ENV.run(
+            export_activity,
+            ExportConfig(
+                checkpoint_path="models/checkpoints",
+                gguf_output="data/workflow/r1/model.gguf",
+                pipeline_run_id="r1",
+                model_id="m",
+            ),
+        )
+
+    storage.upload.assert_called_once()
+    assert result == GGUFPath(path="workflow/r1/model.gguf")
+
+
+@pytest.mark.asyncio
+async def test_export_activity_pipeline_run_id_takes_precedence_over_model_id():
+    from unittest.mock import MagicMock
+    from infrastructure.storage.local import LocalStorageAdapter
+
+    storage = MagicMock(spec=LocalStorageAdapter)
+    configure_storage(storage)
+
+    with patch("domain.train.export.export"):
+        result = await ENV.run(
+            export_activity,
+            ExportConfig(
+                checkpoint_path="models/checkpoints",
+                gguf_output="data/workflow/run-42/model.gguf",
+                pipeline_run_id="run-42",
+                model_id="model-99",
+            ),
+        )
+
+    assert result.path == "workflow/run-42/model.gguf"
+
+
+@pytest.mark.asyncio
+async def test_export_activity_falls_back_to_model_id_when_no_pipeline_run_id():
+    from unittest.mock import MagicMock
+    from infrastructure.storage.local import LocalStorageAdapter
+
+    storage = MagicMock(spec=LocalStorageAdapter)
+    configure_storage(storage)
+
+    with patch("domain.train.export.export"):
+        result = await ENV.run(
+            export_activity,
+            ExportConfig(checkpoint_path="models/checkpoints", gguf_output="models/gguf/m.gguf", model_id="m"),
+        )
+
+    storage.upload.assert_called_once()
+    assert result == GGUFPath(path="gguf/m.gguf")
 
 
 @pytest.mark.asyncio
 async def test_export_activity_raises_application_error_on_exception():
     with patch("domain.train.export.export", side_effect=RuntimeError("conversion failed")):
         with pytest.raises(ApplicationError, match="export failed"):
-            await ENV.run(export_activity, CheckpointPath(path="models/checkpoints"))
+            await ENV.run(
+                export_activity,
+                ExportConfig(checkpoint_path="models/checkpoints", gguf_output="models/aipet.gguf"),
+            )
 
 
 @pytest.mark.asyncio
 async def test_export_activity_raises_application_error_on_system_exit():
     with patch("domain.train.export.export", side_effect=SystemExit(1)):
         with pytest.raises(ApplicationError, match="llama.cpp setup issue"):
-            await ENV.run(export_activity, CheckpointPath(path="models/checkpoints"))
+            await ENV.run(
+                export_activity,
+                ExportConfig(checkpoint_path="models/checkpoints", gguf_output="models/aipet.gguf"),
+            )
 
 
 # ---------------------------------------------------------------------------

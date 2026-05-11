@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from domain.ports import InferencePort
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Adapter singleton — wired at startup or via configure() in tests
@@ -28,7 +32,8 @@ def get_adapter() -> InferencePort:
 def configure(adapter: InferencePort) -> None:
     """Wire in a concrete InferencePort implementation.
 
-    Called by the lifespan handler on startup and by tests to inject a stub.
+    Called by the lifespan handler on startup, by the activate endpoint for
+    hot-swapping, and by tests to inject a stub.
     """
     global _adapter
     _adapter = adapter
@@ -40,17 +45,46 @@ def configure(adapter: InferencePort) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    from infrastructure.inference import LlamaCppInferenceAdapter
     from infrastructure.database import init_db, make_engine
+    from infrastructure.inference import LlamaCppInferenceAdapter
     from infrastructure.models.model_store import SQLAlchemyModelStore
+    from infrastructure.models.run_store import SQLAlchemyRunStore
+    from infrastructure.storage import LocalStorageAdapter
     from api.training_routes import configure_model_store
-
-    model_path = os.getenv("MODEL_PATH", "models/aipet.gguf")
-    configure(LlamaCppInferenceAdapter(model_path=model_path))
+    from api.training_routes import configure_run_store as configure_route_run_store
+    from temporal.activities import configure_run_store, configure_storage
 
     engine = make_engine()
     init_db(engine)
-    configure_model_store(SQLAlchemyModelStore(engine))
+    store = SQLAlchemyModelStore(engine)
+    configure_model_store(store)
+
+    run_store = SQLAlchemyRunStore(engine)
+    configure_run_store(run_store)
+    configure_route_run_store(run_store)
+
+    storage = LocalStorageAdapter()
+    configure_storage(storage)
+
+    # Startup strategy: prefer the DB-flagged active model; fall back to env var.
+    active = store.active()
+    if active and active.gguf_path:
+        local_path = Path("models/cache") / active.id / "model.gguf"
+        try:
+            storage.download(active.gguf_path, local_path)
+            model_path = str(local_path)
+            logger.info("Loading active model %s from storage key %s", active.id, active.gguf_path)
+        except Exception:
+            logger.warning(
+                "Could not load active model %s from storage; falling back to MODEL_PATH",
+                active.id,
+                exc_info=True,
+            )
+            model_path = os.getenv("MODEL_PATH", "models/aipet.gguf")
+    else:
+        model_path = os.getenv("MODEL_PATH", "models/aipet.gguf")
+
+    configure(LlamaCppInferenceAdapter(model_path=model_path))
 
     try:
         yield

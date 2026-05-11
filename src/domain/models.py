@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -61,10 +62,31 @@ class TrainingModelConfig(BaseModel):
     warmup_ratio: float = 0.05
     remote_backend: str = "local"
     skip_generate: bool = False
+    gguf_path: str = ""
+    is_active: bool = False
 
 
 class TrainingModel(TrainingModelConfig):
     id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class RunStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class RunConfig(BaseModel):
+    model_id: str
+    workflow_id: str
+
+
+class RunRecord(RunConfig):
+    id: str
+    status: RunStatus
+    eval_valid_pct: float | None = None
     created_at: datetime
     updated_at: datetime
 

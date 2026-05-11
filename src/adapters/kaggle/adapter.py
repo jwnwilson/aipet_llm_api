@@ -132,6 +132,15 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             archive.unlink()
         return str(dest)
 
+    def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:
+        # Kaggle kernels are batch-only and do not expose interactive inference.
+        # Use a backend that supports remote eval (e.g. ssh), or accept that eval
+        # will run locally after the checkpoint is downloaded.
+        raise NotImplementedError(
+            "Remote eval is not supported for Kaggle. "
+            "Use the ssh backend or remove remote_backend to eval locally."
+        )
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

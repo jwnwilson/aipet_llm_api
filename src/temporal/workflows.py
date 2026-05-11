@@ -17,11 +17,14 @@ with workflow.unsafe.imports_passed_through():
         DatasetPaths,
         EvalConfig,
         EvalResult,
+        ExportConfig,
         GGUFPath,
         TrainConfig,
         evaluate_activity,
         export_activity,
+        finalise_run_activity,
         generate_dataset_activity,
+        save_gguf_path_activity,
         train_activity,
     )
 
@@ -29,6 +32,8 @@ with workflow.unsafe.imports_passed_through():
 @dataclass
 class ExperimentConfig:
     experiment_name: str = ""
+    model_id: str = ""
+    run_id: str = ""
     epochs: int = DEFAULT_EPOCHS
     patience: int = DEFAULT_PATIENCE
     warmup_ratio: float = DEFAULT_WARMUP_RATIO
@@ -36,6 +41,7 @@ class ExperimentConfig:
     dry_run: bool = False
     data_dir: str = "data"
     output_dir: str = DEFAULT_OUTPUT_DIR
+    gguf_output: str = "models/aipet.gguf"
     model: str = DEFAULT_MODEL
     train_size: int = TRAIN_SIZE
     eval_size: int = EVAL_SIZE
@@ -46,6 +52,7 @@ class ExperimentConfig:
 
 @dataclass
 class PipelineResult:
+    run_id: str = ""
     experiment_name: str = ""
     dataset_paths: DatasetPaths = field(default_factory=DatasetPaths)
     checkpoint: CheckpointPath = field(default_factory=CheckpointPath)
@@ -70,7 +77,7 @@ class TrainingPipelineWorkflow:
 
     @workflow.run
     async def run(self, config: ExperimentConfig) -> PipelineResult:
-        result = PipelineResult(experiment_name=config.experiment_name)
+        result = PipelineResult(run_id=config.run_id, experiment_name=config.experiment_name)
 
         if config.skip_generate:
             result.dataset_paths = DatasetPaths(
@@ -116,6 +123,9 @@ class TrainingPipelineWorkflow:
             EvalConfig(
                 checkpoint=result.checkpoint.path,
                 eval_data=result.dataset_paths.eval,
+                run_id=result.checkpoint.run_id,
+                remote_backend=result.checkpoint.remote_backend,
+                output_dir=config.output_dir,
             ),
             start_to_close_timeout=timedelta(minutes=30),
             heartbeat_timeout=timedelta(minutes=2),
@@ -127,11 +137,27 @@ class TrainingPipelineWorkflow:
         if result.eval_result.passed:
             result.gguf_path = await workflow.execute_activity(
                 export_activity,
-                result.checkpoint,
+                ExportConfig(
+                    checkpoint_path=result.checkpoint.path,
+                    gguf_output=config.gguf_output,
+                    run_id=result.checkpoint.run_id,
+                    remote_backend=result.checkpoint.remote_backend,
+                    model_id=config.model_id,
+                    pipeline_run_id=config.run_id,
+                ),
                 start_to_close_timeout=timedelta(hours=1),
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=_NO_RETRY,
             )
+
+            if config.model_id:
+                await workflow.execute_activity(
+                    save_gguf_path_activity,
+                    args=[config.model_id, result.gguf_path.path],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=_RETRY,
+                )
+
             workflow.logger.info(
                 "experiment=%s PASS valid_pct=%.1f%% gguf=%s",
                 config.experiment_name,
@@ -143,6 +169,14 @@ class TrainingPipelineWorkflow:
                 "experiment=%s FAIL valid_pct=%.1f%% (threshold=95%%) — export skipped",
                 config.experiment_name,
                 result.eval_result.valid_pct * 100,
+            )
+
+        if config.run_id:
+            await workflow.execute_activity(
+                finalise_run_activity,
+                args=[config.run_id, result.passed, result.eval_result.valid_pct],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=_RETRY,
             )
 
         return result

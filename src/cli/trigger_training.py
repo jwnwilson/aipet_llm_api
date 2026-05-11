@@ -20,9 +20,9 @@ async def _trigger(
     model: str,
     train_size: int,
     eval_size: int,
-    data_dir: str,
-    output_dir: str,
 ) -> None:
+    from pathlib import Path
+
     from temporalio.client import Client
 
     from temporal.worker import TASK_QUEUE
@@ -31,8 +31,13 @@ async def _trigger(
     temporal_host = os.environ.get("TEMPORAL_HOST", "localhost:7233")
     client = await Client.connect(temporal_host)
 
+    run_id = str(uuid.uuid4())
+    run_data_dir = f"data/workflow/{run_id}"
+    Path(run_data_dir).mkdir(parents=True, exist_ok=True)
+
     config = ExperimentConfig(
         experiment_name=experiment_name,
+        run_id=run_id,
         epochs=epochs,
         patience=patience,
         warmup_ratio=warmup_ratio,
@@ -42,8 +47,9 @@ async def _trigger(
         model=model,
         train_size=train_size,
         eval_size=eval_size,
-        data_dir=data_dir,
-        output_dir=output_dir,
+        data_dir=run_data_dir,
+        output_dir=f"{run_data_dir}/checkpoint",
+        gguf_output=f"{run_data_dir}/model.gguf",
     )
 
     workflow_id = f"training-{experiment_name}-{uuid.uuid4().hex[:8]}"
@@ -56,9 +62,10 @@ async def _trigger(
 
     print(f"Workflow started")
     print(f"  ID         : {handle.id}")
-    print(f"  Run ID     : {handle.result_run_id}")
+    print(f"  Run ID     : {run_id}")
     print(f"  Backend    : {remote_backend or 'local'}")
     print(f"  Model      : {model}")
+    print(f"  Data dir   : {run_data_dir}")
     print(f"  UI         : http://localhost:8233/namespaces/default/workflows/{handle.id}")
 
 
@@ -81,14 +88,12 @@ def main(argv: list[str] | None = None) -> None:
                         help="Train for 1 step only (smoke test)")
     parser.add_argument("--train-size", type=int, default=TRAIN_SIZE, dest="train_size")
     parser.add_argument("--eval-size", type=int, default=EVAL_SIZE, dest="eval_size")
-    parser.add_argument("--data-dir", default="data", dest="data_dir")
-    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, dest="output_dir")
     parser.add_argument(
         "--remote-backend",
         dest="remote_backend",
-        choices=["local", "kaggle", "ssh"],
+        choices=["local", "kaggle", "ssh", "colab"],
         default="local",
-        help="Where to run fine-tuning: local machine, Kaggle GPU, or SSH remote host",
+        help="Where to run fine-tuning: local machine, Kaggle GPU, SSH remote host, or Google Colab",
     )
     parser.add_argument(
         "--model",
@@ -111,8 +116,6 @@ def main(argv: list[str] | None = None) -> None:
             model=args.model,
             train_size=args.train_size,
             eval_size=args.eval_size,
-            data_dir=args.data_dir,
-            output_dir=args.output_dir,
         ))
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
