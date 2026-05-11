@@ -59,7 +59,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         self._username = os.environ.get("KAGGLE_USERNAME", "")
         self._work_dir = work_dir or Path("models/kaggle_kernels")
         self._work_dir.mkdir(parents=True, exist_ok=True)
-        self._project_root = Path(__file__).parents[3].resolve()
+        self._project_root = Path(__file__).parents[4].resolve()
 
     # ------------------------------------------------------------------
     # RemoteTrainingPort
