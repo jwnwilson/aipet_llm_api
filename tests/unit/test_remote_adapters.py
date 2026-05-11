@@ -197,6 +197,32 @@ class TestKaggleAdapterDownload:
         assert any("output" in c for c in calls)
         assert result == str(tmp_path / "dest")
 
+    def test_returns_inner_hf_checkpoint_path_when_archive_has_nested_structure(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
+
+        import io
+        import tarfile
+
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        config_content = '{"model_type": "llama", "architectures": []}'
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            data = config_content.encode()
+            info = tarfile.TarInfo(name="checkpoints/config.json")
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+        (dest / "checkpoint.tar.gz").write_bytes(buf.getvalue())
+
+        from adapters.compute.kaggle import KaggleTrainingAdapter
+        result = KaggleTrainingAdapter(work_dir=tmp_path).download("testuser/exp", dest)
+
+        assert result == str(dest / "checkpoints"), (
+            "download() should return the inner HF checkpoint dir, not the extraction root"
+        )
+
     def test_unpacks_archive_if_present(self, tmp_path, monkeypatch):
         monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
         monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
@@ -216,6 +242,15 @@ class TestKaggleAdapterDownload:
 
         assert not archive.exists(), "Archive should be deleted after extraction"
         assert (dest / "marker.txt").exists(), "Archive contents should be extracted"
+
+
+class TestKaggleAdapterProjectRoot:
+    def test_project_root_contains_pyproject(self, tmp_path):
+        from adapters.compute.kaggle import KaggleTrainingAdapter
+        adapter = KaggleTrainingAdapter(work_dir=tmp_path)
+        assert (adapter._project_root / "pyproject.toml").exists(), (
+            f"_project_root={adapter._project_root!r} has no pyproject.toml — parents[] depth is wrong"
+        )
 
 
 class TestKaggleAdapterLogs:

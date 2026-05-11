@@ -130,6 +130,10 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             with tarfile.open(archive) as tf:
                 tf.extractall(dest)
             archive.unlink()
+        # Find the directory that contains the HF model config
+        for config_path in sorted(dest.rglob("config.json")):
+            if config_path.read_text().find('"model_type"') != -1:
+                return str(config_path.parent)
         return str(dest)
 
     def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:

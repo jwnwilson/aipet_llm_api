@@ -16,7 +16,7 @@ MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 FAST_MODEL      ?= HuggingFaceTB/SmolLM2-135M
 FAST_DATA_DIR   ?= data/fast
 
-.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train colab-train help
+.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf export infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train colab-train colab-train-fast help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -155,6 +155,15 @@ colab-train: ## Trigger a Google Colab training run  (EXPERIMENT / EPOCHS / PATI
 		--remote-backend colab \
 		--model $(MODEL) \
 		$(if $(SKIP_GENERATE),--skip-generate)
+
+colab-train-fast: ## Trigger a fast smoke-test Colab run  (tiny model + 20 examples + 1 step)
+	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+		--experiment-name aipet-colab-fast \
+		--model $(FAST_MODEL) \
+		--train-size 20 \
+		--eval-size 10 \
+		--dry-run \
+		--remote-backend colab
 
 kaggle-notebook-local: ## Simulate full Kaggle notebook locally: stage dataset then run all cells
 	@echo "--- Staging dataset: build wheel + copy data ---"

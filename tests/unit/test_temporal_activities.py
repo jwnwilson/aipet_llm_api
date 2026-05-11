@@ -153,6 +153,36 @@ async def test_evaluate_activity_raises_on_exception():
             await ENV.run(evaluate_activity, EvalConfig(checkpoint="bad/path"))
 
 
+@pytest.mark.asyncio
+async def test_evaluate_remote_kaggle_fallback_passes_inner_checkpoint_to_local(monkeypatch):
+    """When a backend raises NotImplementedError on eval(), download() is called and the
+    path it returns (the inner HF checkpoint dir) must be forwarded to _evaluate_local."""
+    import asyncio
+    import interactors.temporal.activities as acts
+    from unittest.mock import MagicMock
+
+    inner_ckpt = "/tmp/dest/checkpoints"
+    mock_adapter = MagicMock()
+    mock_adapter.eval.side_effect = NotImplementedError
+    mock_adapter.download.return_value = inner_ckpt
+
+    local_calls: list[str] = []
+
+    async def fake_local(config, loop):
+        local_calls.append(config.checkpoint)
+        return EvalResult(valid_pct=0.95, passed=True)
+
+    monkeypatch.setattr(acts, "_evaluate_local", fake_local)
+    monkeypatch.setattr(acts, "_make_remote_adapter", lambda _: mock_adapter)
+
+    config = EvalConfig(remote_backend="kaggle", run_id="u/exp", eval_data="data/eval.jsonl")
+    await acts._evaluate_remote(config, asyncio.get_event_loop())
+
+    assert local_calls == [inner_ckpt], (
+        "_evaluate_local must receive the inner checkpoint path returned by download(), not the extraction root"
+    )
+
+
 # ---------------------------------------------------------------------------
 # export_activity
 # ---------------------------------------------------------------------------
