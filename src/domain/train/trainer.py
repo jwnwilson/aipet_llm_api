@@ -55,6 +55,47 @@ DEFAULT_PATIENCE = 3
 DEFAULT_WARMUP_RATIO = 0.05
 
 
+def _strip_bnb_config(config_file: Path) -> None:
+    if not config_file.exists():
+        return
+    cfg = json.loads(config_file.read_text())
+    qc = cfg.get("quantization_config") or {}
+    if qc.get("quant_method") == "bitsandbytes" or qc.get("quant_type") in ("nf4", "fp4"):
+        cfg.pop("quantization_config")
+        config_file.write_text(json.dumps(cfg, indent=2))
+
+
+def _dequantize_linear4bit(model: "AutoModelForCausalLM") -> None:
+    """Replace any remaining Linear4bit modules with plain nn.Linear in float16.
+
+    Called after merge_and_unload() as a safety net for PEFT versions that do
+    not fully dequantize all layers, which would otherwise write .absmax tensors
+    to disk and break llama.cpp conversion.
+    """
+    try:
+        import bitsandbytes.nn as bnb_nn
+    except ImportError:
+        return
+
+    replaced = 0
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, bnb_nn.Linear4bit):
+            continue
+        parent_path, _, child_name = name.rpartition(".")
+        parent = model.get_submodule(parent_path) if parent_path else model
+        with torch.no_grad():
+            w = module.weight.dequantize().to(torch.float16)
+        linear = torch.nn.Linear(w.shape[1], w.shape[0], bias=module.bias is not None, dtype=torch.float16)
+        linear.weight = torch.nn.Parameter(w)
+        if module.bias is not None:
+            linear.bias = torch.nn.Parameter(module.bias.to(torch.float16))
+        setattr(parent, child_name, linear)
+        replaced += 1
+
+    if replaced:
+        print(f"  Explicitly dequantized {replaced} remaining Linear4bit layer(s) to float16.")
+
+
 def load_jsonl(path: str) -> list[dict]:
     records: list[dict] = []
     with open(path, "r", encoding="utf-8") as fh:
@@ -477,7 +518,17 @@ def train(
         # standard HF model — no PEFT dependency needed for inference or export.
         print("Merging LoRA adapters into base model …")
         merged = trainer.model.merge_and_unload()
+
+        # Some PEFT versions leave Linear4bit modules un-dequantized after
+        # merge_and_unload(), which causes .absmax/.quant_map tensors to be
+        # written to disk — tensors llama.cpp's converter cannot map.
+        # Explicitly replace any remaining Linear4bit with nn.Linear in fp16.
+        if _use_qlora:
+            _dequantize_linear4bit(merged)
+
         merged.save_pretrained(output_dir)
+        # Strip any residual quantization_config from config.json.
+        _strip_bnb_config(Path(output_dir) / "config.json")
         # Remove intermediate checkpoint-XXXX dirs — they held adapter-only weights
         # that are now superseded by the merged model, freeing ~N×28MB.
         for _d in Path(output_dir).iterdir():

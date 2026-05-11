@@ -1,6 +1,7 @@
 #TODO
 
 1. Verify new large model works well with the AIPET game
+    - Setup export job on kaggle to export using CUDA
 2. Verify ability to re eval and re export with async functionality
 3. Validate llm ui works with new API
     - This looks broken, add integration tests to ensure this doesn't break in future
