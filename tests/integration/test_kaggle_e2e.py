@@ -43,6 +43,7 @@ def _make_kaggle_adapter(checkpoint_dir: Path) -> MagicMock:
     adapter = MagicMock()
     adapter.submit.return_value = _KAGGLE_RUN_ID
     adapter.status.return_value = "done"
+    adapter.logs.return_value = ""
     adapter.eval.return_value = (0.97, True)
     adapter.download.return_value = str(checkpoint_dir)
     return adapter

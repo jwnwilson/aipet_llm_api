@@ -130,9 +130,9 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
                     timeout=15,
                     check=False,
                 )
-                progress_file = Path(tmpdir) / "progress.json"
-                if progress_file.exists():
-                    data = json.loads(progress_file.read_text())
+                matches = list(Path(tmpdir).glob("**/progress.json"))
+                if matches:
+                    data = json.loads(matches[0].read_text())
                     step = data.get("step", "?")
                     max_steps = data.get("max_steps", "?")
                     epoch = data.get("epoch", "?")

@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 from temporalio.client import Client
 from temporalio.worker import Worker

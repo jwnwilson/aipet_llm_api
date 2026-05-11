@@ -201,7 +201,7 @@ kaggle-notebook-local: ## Simulate full Kaggle notebook locally: stage dataset t
 	@echo "--- Local Kaggle notebook simulation passed ---"
 
 db-migrate: .venv ## Apply all pending Alembic migrations to data/aipet.db (auto-stamps pre-Alembic DBs)
-	PYTHONPATH=src uv run python -c "from adapters.database.engine import make_engine, _run_migrations; _run_migrations(make_engine())"
+	PYTHONPATH=src uv run python src/interactors/cli/db_migrate.py
 
 db-revision: .venv ## Generate a new Alembic migration  (MSG="describe the change")
 	PYTHONPATH=src uv run alembic revision --autogenerate -m "$(MSG)"

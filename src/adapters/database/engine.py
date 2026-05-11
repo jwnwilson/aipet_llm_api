@@ -29,29 +29,23 @@ _SessionLocal: sessionmaker | None = None
 
 
 def init_db(engine: Engine) -> None:
-    """Initialise the module-level engine and apply schema migrations."""
+    """Initialise the module-level engine and session factory."""
     global _engine, _SessionLocal
     _engine = engine
     _SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
     if ":memory:" in str(engine.url):
-        # In-memory SQLite (tests) — alembic cannot share connections across processes,
-        # so fall back to create_all which operates on the live engine.
         Base.metadata.create_all(engine)
-    else:
-        _run_migrations(engine)
 
 
-def _run_migrations(engine: Engine) -> None:
-    """Run any pending Alembic migrations; stamp pre-Alembic databases first."""
+def run_migrations(engine: Engine) -> None:
+    """Apply pending Alembic migrations; stamps pre-Alembic databases first."""
     from alembic import command
     from alembic.config import Config
 
     cfg = Config(str(_ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", str(engine.url))
 
-    # Databases that existed before Alembic was introduced have no alembic_version
-    # table. Stamp them at 0001 so upgrade only applies the missing columns.
     insp = sa_inspect(engine)
     if insp.has_table("training_models") and not insp.has_table("alembic_version"):
         command.stamp(cfg, "0001")

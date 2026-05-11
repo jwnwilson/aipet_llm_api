@@ -299,6 +299,11 @@ async def evaluate_activity(config: EvalConfig) -> EvalResult:
     finally:
         heartbeat_task.cancel()
 
+    activity.logger.info(
+        "Eval complete: valid_pct=%.1f%% passed=%s",
+        result.valid_pct * 100,
+        result.passed,
+    )
     return result
 
 
