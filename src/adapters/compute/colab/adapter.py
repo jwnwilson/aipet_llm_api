@@ -166,11 +166,22 @@ class ColabTrainingAdapter(RemoteTrainingPort):
     def _get_or_create_root_folder(self) -> str:
         if self._root_folder_id:
             return self._root_folder_id
-        raise RuntimeError(
-            "GOOGLE_DRIVE_FOLDER_ID is not set. "
-            "Create a 'ColabTraining' folder in your Google Drive, share it with "
-            "the service account as Editor, then set GOOGLE_DRIVE_FOLDER_ID to its folder ID."
+        query = (
+            f"name='{_DRIVE_ROOT_FOLDER}' and "
+            "mimeType='application/vnd.google-apps.folder' and "
+            "'root' in parents and trashed=false"
         )
+        results = self._drive.files().list(q=query, fields="files(id)").execute()
+        files = results.get("files", [])
+        if files:
+            self._root_folder_id = files[0]["id"]
+            return self._root_folder_id
+        meta = {
+            "name": _DRIVE_ROOT_FOLDER,
+            "mimeType": "application/vnd.google-apps.folder",
+        }
+        self._root_folder_id = self._drive.files().create(body=meta, fields="id").execute()["id"]
+        return self._root_folder_id
 
     def _upload_directory(self, staging: Path, folder_id: str) -> None:
         for path in staging.iterdir():

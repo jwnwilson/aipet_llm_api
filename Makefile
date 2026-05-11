@@ -17,7 +17,7 @@ MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 FAST_MODEL      ?= HuggingFaceTB/SmolLM2-135M
 FAST_DATA_DIR   ?= data/fast
 
-.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train colab-train colab-train-fast google-auth help
+.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train colab-train colab-train-fast google-auth db-migrate db-revision help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -199,6 +199,12 @@ kaggle-notebook-local: ## Simulate full Kaggle notebook locally: stage dataset t
 	KAGGLE_INPUT_BASE=/tmp/kaggle-sim/input/$(EXPERIMENT)-data \
 		uv run python src/interactors/cli/run_notebook_local.py
 	@echo "--- Local Kaggle notebook simulation passed ---"
+
+db-migrate: .venv ## Apply all pending Alembic migrations to data/aipet.db (auto-stamps pre-Alembic DBs)
+	PYTHONPATH=src uv run python -c "from adapters.database.engine import make_engine, _run_migrations; _run_migrations(make_engine())"
+
+db-revision: .venv ## Generate a new Alembic migration  (MSG="describe the change")
+	PYTHONPATH=src uv run alembic revision --autogenerate -m "$(MSG)"
 
 request: ## Send a test /infer request to the running API server  (HOST/PORT to override)
 	curl -s -X POST http://$(HOST):$(PORT)/infer \
