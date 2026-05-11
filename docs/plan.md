@@ -169,3 +169,100 @@ uv run python -m src.cli.trigger_training \
 ```
 
 **Outputs:** Updated `src/interactors/cli/trigger_training.py`
+
+---
+
+## EPIC-6: Authentication for Public Access
+
+> Add API key authentication so the FastAPI backend can be safely exposed to the internet and called from a public-facing React app.
+
+**Goals:**
+- Protect all API endpoints with a simple, low-friction auth mechanism suitable for a single-team React client
+- No user accounts required — one or more pre-issued API keys is sufficient for now
+- CORS configured so the React app's origin can reach the API
+- Easy to extend to per-user tokens later if needed
+
+**Fill in this section with:** the React app's domain/origin (needed for CORS), whether the API key should be embedded in the React app (public, read-only) or kept server-side only, and whether any endpoints (e.g. `GET /health`) should remain unauthenticated.
+
+---
+
+### Feature 6.1 — API Key Middleware
+
+#### TASK-6.1.1 — API key store and domain model
+Add `ApiKey` to `src/domain/models.py`:
+```python
+class ApiKey(BaseModel):
+    key_hash: str       # sha256 of the raw key — never store plaintext
+    label: str          # human-readable name, e.g. "react-app-prod"
+    created_at: datetime
+    is_active: bool
+```
+Store keys in the existing DB via an Alembic migration. Seed at least one key on first startup from the `API_KEYS` env var (comma-separated raw keys; hashed on write).
+
+**Outputs:** Updated `src/domain/models.py`, new Alembic migration, `src/adapters/database/api_key_store.py`
+
+#### TASK-6.1.2 — FastAPI dependency for key validation
+Add `src/interactors/api/auth.py` with a `require_api_key` dependency:
+- Reads the `X-Api-Key` header (or `Authorization: Bearer <key>`)
+- Hashes the incoming value and compares against active keys in the DB
+- Returns HTTP 401 if missing or unrecognised, HTTP 403 if the key exists but `is_active=False`
+- Excluded routes: `GET /health` (unauthenticated liveness probe)
+
+**Outputs:** `src/interactors/api/auth.py`, `tests/unit/test_auth.py`
+
+#### TASK-6.1.3 — Apply the dependency to all routers
+Pass `dependencies=[Depends(require_api_key)]` at the router level so new routes are protected by default without per-endpoint decoration.
+
+**Outputs:** Updated `src/interactors/api/app.py`
+
+---
+
+### Feature 6.2 — CORS Configuration
+
+#### TASK-6.2.1 — Add `CORSMiddleware`
+Add `fastapi.middleware.cors.CORSMiddleware` to `src/interactors/api/app.py`:
+- `allow_origins` driven by `CORS_ORIGINS` env var (comma-separated list; defaults to `[]` in production, `["*"]` only in local dev when `APP_ENV=development`)
+- `allow_methods=["GET", "POST"]`
+- `allow_headers=["X-Api-Key", "Content-Type"]`
+
+**Outputs:** Updated `src/interactors/api/app.py`
+
+#### TASK-6.2.2 — Document env vars
+Add to `README.md` (or a new `docs/configuration.md`):
+| Env var | Required | Example | Purpose |
+|---|---|---|---|
+| `API_KEYS` | Yes (prod) | `key1,key2` | Comma-separated raw API keys seeded on startup |
+| `CORS_ORIGINS` | Yes (prod) | `https://app.example.com` | Allowed React app origins |
+| `APP_ENV` | No | `development` | Set to `development` to allow wildcard CORS locally |
+
+---
+
+### Feature 6.3 — Key Management CLI
+
+#### TASK-6.3.1 — `src/interactors/cli/manage_keys.py`
+Thin CLI for ops use:
+```bash
+uv run python -m src.cli.manage_keys create --label "react-app-prod"
+# Prints the raw key once — store it in your secrets manager
+
+uv run python -m src.cli.manage_keys list
+# Shows label, created_at, is_active (never shows raw key)
+
+uv run python -m src.cli.manage_keys revoke --label "react-app-prod"
+```
+
+**Outputs:** `src/interactors/cli/manage_keys.py`, `tests/cli/test_manage_keys.py`
+
+---
+
+### Feature 6.4 — Integration Tests
+
+#### TASK-6.4.1 — Auth integration tests
+Cover the full request cycle with a real test DB:
+- Unauthenticated request → 401
+- Wrong key → 401
+- Revoked key → 403
+- Valid key → 200 on a protected endpoint
+- `GET /health` → 200 with no key
+
+**Outputs:** `tests/integration/test_auth.py`
