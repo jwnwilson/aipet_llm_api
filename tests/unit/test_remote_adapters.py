@@ -449,10 +449,8 @@ class TestSshAdapterLogs:
 class TestTrainActivityRouting:
     """Verify train_activity delegates to the correct backend without running real training."""
 
-    def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
-
-    def test_local_backend_calls_train_domain_function(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_local_backend_calls_train_domain_function(self, monkeypatch):
         import interactors.temporal.activities as acts
 
         called = {}
@@ -466,12 +464,12 @@ class TestTrainActivityRouting:
 
         from interactors.temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="")
-        result = self._run(train_activity(config))
+        result = await train_activity(config)
         assert called.get("config") is not None
         assert result.path == "models/checkpoints"
 
-    def test_kaggle_backend_routes_to_kaggle_adapter(self, monkeypatch):
-
+    @pytest.mark.asyncio
+    async def test_kaggle_backend_routes_to_kaggle_adapter(self, monkeypatch):
         import interactors.temporal.activities as acts
 
         submitted = {}
@@ -485,10 +483,11 @@ class TestTrainActivityRouting:
 
         from interactors.temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="kaggle")
-        self._run(train_activity(config))
+        await train_activity(config)
         assert submitted["adapter"] == "KaggleTrainingAdapter"
 
-    def test_ssh_backend_routes_to_ssh_adapter(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_ssh_backend_routes_to_ssh_adapter(self, monkeypatch):
         import interactors.temporal.activities as acts
 
         submitted = {}
@@ -502,18 +501,20 @@ class TestTrainActivityRouting:
 
         from interactors.temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="ssh")
-        self._run(train_activity(config))
+        await train_activity(config)
         assert submitted["adapter"] == "SshTrainingAdapter"
 
-    def test_unknown_backend_raises_application_error(self):
+    @pytest.mark.asyncio
+    async def test_unknown_backend_raises_application_error(self):
         from temporalio.exceptions import ApplicationError
         from interactors.temporal.activities import TrainConfig, train_activity
 
         config = TrainConfig(remote_backend="gcp")
         with pytest.raises(ApplicationError, match="Unknown remote_backend"):
-            self._run(train_activity(config))
+            await train_activity(config)
 
-    def test_colab_backend_routes_to_colab_adapter(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_colab_backend_routes_to_colab_adapter(self, monkeypatch):
         import interactors.temporal.activities as acts
 
         submitted: dict = {}
@@ -531,7 +532,7 @@ class TestTrainActivityRouting:
 
         from interactors.temporal.activities import TrainConfig, train_activity
         config = TrainConfig(remote_backend="colab")
-        self._run(train_activity(config))
+        await train_activity(config)
         assert submitted["adapter"] == "ColabTrainingAdapter"
 
 
