@@ -14,7 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from interactors.api.app import app
-from interactors.api.training_routes import configure_model_store, configure_run_store, get_model_store, get_run_store
+from interactors.api.deps import get_model_store, get_run_store
 from adapters.database import Base, init_db
 from adapters.database.model_store import SQLAlchemyModelStore
 from adapters.database.run_store import SQLAlchemyRunStore
@@ -235,7 +235,7 @@ class TestTriggerRun:
             patch("temporalio.client.Client.connect", connect_mock),
             patch("pathlib.Path.mkdir"),
         ):
-            resp = await client.post(f"/api/models/{model_id}/trigger")
+            resp = await client.post("/api/runs/trigger", json={"model_id": model_id})
 
         assert resp.status_code == 202
         body = resp.json()
@@ -246,7 +246,7 @@ class TestTriggerRun:
 
     @pytest.mark.asyncio
     async def test_unknown_model_id_returns_404(self, client):
-        resp = await client.post("/api/models/does-not-exist/trigger")
+        resp = await client.post("/api/runs/trigger", json={"model_id": "does-not-exist"})
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
@@ -255,7 +255,7 @@ class TestTriggerRun:
         connect_mock = AsyncMock(side_effect=RuntimeError("Temporal unavailable"))
 
         with patch("temporalio.client.Client.connect", connect_mock):
-            resp = await client.post(f"/api/models/{model_id}/trigger")
+            resp = await client.post("/api/runs/trigger", json={"model_id": model_id})
 
         assert resp.status_code == 500
 
@@ -280,8 +280,8 @@ class TestListRuns:
             patch("temporalio.client.Client.connect", connect_mock),
             patch("pathlib.Path.mkdir"),
         ):
-            await client.post(f"/api/models/{model_id}/trigger")
-            await client.post(f"/api/models/{model_id}/trigger")
+            await client.post("/api/runs/trigger", json={"model_id": model_id})
+            await client.post("/api/runs/trigger", json={"model_id": model_id})
 
         resp = await client.get("/api/runs")
         assert resp.status_code == 200
@@ -302,7 +302,7 @@ class TestGetRun:
             patch("temporalio.client.Client.connect", connect_mock),
             patch("pathlib.Path.mkdir"),
         ):
-            resp = await client.post(f"/api/models/{model_id}/trigger")
+            resp = await client.post("/api/runs/trigger", json={"model_id": model_id})
         run_id = resp.json()["run_id"]
 
         get_resp = await client.get(f"/api/runs/{run_id}")

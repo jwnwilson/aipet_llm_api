@@ -42,3 +42,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow — downloads models, trains, exports (deselect with '-m \"not slow\"')",
+    "gpu: marks tests that require a CUDA GPU (skip on CPU/MPS machines)",
+]

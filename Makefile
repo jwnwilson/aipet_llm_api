@@ -24,10 +24,10 @@ help:
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
 .venv:
-	uv sync --all-extras --reinstall-package kaggle
+	uv sync --extra dev --reinstall-package kaggle
 
 sync: ## Install / sync all dependencies including dev groups
-	uv sync --all-extras --reinstall-package kaggle
+	uv sync --extra dev --reinstall-package kaggle
 
 serve: .venv ## Start the FastAPI server  (MODEL_PATH=... make serve)
 	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run python -m uvicorn interactors.api.app:app \
@@ -166,27 +166,31 @@ kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIE
 		--model $(MODEL) \
 		$(if $(SKIP_GENERATE),--skip-generate)
 
-colab-train: ## Trigger a Google Colab training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
-	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
-		--experiment-name $(EXPERIMENT) \
-		--epochs $(EPOCHS) \
-		--patience $(PATIENCE) \
-		--remote-backend colab \
-		--model $(MODEL) \
-		$(if $(SKIP_GENERATE),--skip-generate)
+# Note: Colab training requires manual setup of a Colab notebook with the same codebase, plus Google OAuth credentials for Drive access. The `google-auth` target can be used to perform the one-time OAuth login and token caching on your local machine, which you can then copy to the Colab environment.
+# Out of scope for now
+# colab-train: ## Trigger a Google Colab training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
+# 	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+# 		--experiment-name $(EXPERIMENT) \
+# 		--epochs $(EPOCHS) \
+# 		--patience $(PATIENCE) \
+# 		--remote-backend colab \
+# 		--model $(MODEL) \
+# 		$(if $(SKIP_GENERATE),--skip-generate)
 
-google-auth: ## One-time Google OAuth login for Colab Drive access  (GOOGLE_OAUTH_CLIENT_SECRETS=path/to/client_secrets.json)
-	PYTHONPATH=src uv run python src/interactors/cli/setup_google_auth.py \
-		$(if $(GOOGLE_OAUTH_CLIENT_SECRETS),--client-secrets $(GOOGLE_OAUTH_CLIENT_SECRETS))
+# Out of scope for now
+# google-auth: ## One-time Google OAuth login for Colab Drive access  (GOOGLE_OAUTH_CLIENT_SECRETS=path/to/client_secrets.json)
+# 	PYTHONPATH=src uv run python src/interactors/cli/setup_google_auth.py \
+# 		$(if $(GOOGLE_OAUTH_CLIENT_SECRETS),--client-secrets $(GOOGLE_OAUTH_CLIENT_SECRETS))
 
-colab-train-fast: ## Trigger a fast smoke-test Colab run  (tiny model + 20 examples + 1 step)
-	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
-		--experiment-name aipet-colab-fast \
-		--model $(FAST_MODEL) \
-		--train-size 20 \
-		--eval-size 10 \
-		--dry-run \
-		--remote-backend colab
+# Out of scope for now
+# colab-train-fast: ## Trigger a fast smoke-test Colab run  (tiny model + 20 examples + 1 step)
+# 	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+# 		--experiment-name aipet-colab-fast \
+# 		--model $(FAST_MODEL) \
+# 		--train-size 20 \
+# 		--eval-size 10 \
+# 		--dry-run \
+# 		--remote-backend colab
 
 kaggle-notebook-local: ## Simulate full Kaggle notebook locally: stage dataset then run all cells
 	@echo "--- Staging dataset: build wheel + copy data ---"

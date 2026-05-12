@@ -6,7 +6,8 @@ import pytest_asyncio
 import httpx
 from httpx import ASGITransport
 
-from interactors.api.app import app, configure
+from interactors.api.app import app
+from interactors.api.deps import configure
 from domain.actions import Action
 from domain.models import InferenceRequest, InferenceResponse
 from domain.ports import InferencePort

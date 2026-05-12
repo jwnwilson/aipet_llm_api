@@ -341,6 +341,7 @@ def train(
     batch_size: int | None = None,
     no_mps: bool = False,
     progress_path: str | None = None,
+    force_qlora: bool | None = None,
 ) -> None:
     if not _TORCH_AVAILABLE:
         raise ImportError("PyTorch not installed. Run: uv sync")
@@ -389,7 +390,9 @@ def train(
     # right loading strategy without wasting GPU memory on the wrong path.
     # Formula: embedding table + transformer layers (rough but reliable enough).
     _use_qlora = False
-    if use_cuda and _PEFT_AVAILABLE:
+    if force_qlora is True:
+        _use_qlora = use_cuda and _PEFT_AVAILABLE
+    elif force_qlora is None and use_cuda and _PEFT_AVAILABLE:
         try:
             from transformers import AutoConfig
             _cfg = AutoConfig.from_pretrained(model, trust_remote_code=True)
@@ -399,6 +402,7 @@ def train(
             _use_qlora = (_V * _h + _L * 12 * _h * _h) > 3_000_000_000
         except Exception:
             pass
+    # force_qlora is False → _use_qlora stays False (standard LoRA on any device)
 
     if not _PEFT_AVAILABLE:
         print("WARNING: peft not installed — full fine-tune only (install with: uv sync)")

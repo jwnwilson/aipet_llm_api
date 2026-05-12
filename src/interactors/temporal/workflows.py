@@ -51,6 +51,8 @@ class ExperimentConfig:
     seed: int = SEED
     # "local", "kaggle", or "ssh" — controls where fine-tuning runs.
     remote_backend: str = ""
+    # None = auto-detect based on model size; True = always QLoRA; False = never QLoRA.
+    force_qlora: bool | None = None
 
 
 @dataclass
@@ -131,6 +133,7 @@ class TrainingPipelineWorkflow:
                 remote_backend=config.remote_backend,
                 experiment_name=config.experiment_name,
                 db_run_id=config.run_id,
+                force_qlora=config.force_qlora,
             ),
             start_to_close_timeout=timedelta(hours=6),
             heartbeat_timeout=timedelta(minutes=2),

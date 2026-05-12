@@ -1,4 +1,4 @@
-"""Training management API routes — model configs and run management."""
+"""Run management and training trigger endpoints."""
 
 from __future__ import annotations
 
@@ -10,157 +10,74 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from domain.models import RunConfig, RunRecord, RunStatus, TrainingModel, TrainingModelConfig
+from domain.models import RunConfig, RunRecord, RunStatus
 from domain.ports import ModelStorePort, RunStorePort
+from interactors.api.deps import get_model_store, get_run_store
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api")
-
-# ---------------------------------------------------------------------------
-# Dependencies
-# ---------------------------------------------------------------------------
-
-_store: ModelStorePort | None = None
-_run_store: RunStorePort | None = None
-
-
-def get_model_store() -> ModelStorePort:
-    if _store is None:
-        raise RuntimeError("ModelStorePort has not been configured.")
-    return _store
-
-
-def configure_model_store(store: ModelStorePort) -> None:
-    global _store
-    _store = store
-
-
-def get_run_store() -> RunStorePort:
-    if _run_store is None:
-        raise RuntimeError("RunStorePort has not been configured.")
-    return _run_store
-
-
-def configure_run_store(store: RunStorePort) -> None:
-    global _run_store
-    _run_store = store
+router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
 # ---------------------------------------------------------------------------
-# Model CRUD
+# Request schemas
 # ---------------------------------------------------------------------------
 
-@router.get("/models", response_model=list[TrainingModel])
-def list_models(store: ModelStorePort = Depends(get_model_store)) -> list[TrainingModel]:
-    return store.list()
+class TriggerRunRequest(BaseModel):
+    model_id: str
+    epochs: int | None = None
+    patience: int | None = None
+    warmup_ratio: float | None = None
+    skip_generate: bool | None = None
+    remote_backend: str | None = None
+    base_model: str | None = None
 
 
-@router.post("/models", response_model=TrainingModel, status_code=201)
-def create_model(
-    config: TrainingModelConfig,
-    store: ModelStorePort = Depends(get_model_store),
-) -> TrainingModel:
-    return store.create(config)
+class EvaluateRequest(BaseModel):
+    remote_backend: str = ""
+    remote_run_id: str = ""
 
 
-@router.get("/models/{model_id}", response_model=TrainingModel)
-def get_model(
-    model_id: str,
-    store: ModelStorePort = Depends(get_model_store),
-) -> TrainingModel:
-    model = store.get(model_id)
-    if model is None:
-        raise HTTPException(status_code=404, detail="Model not found")
-    return model
-
-
-@router.put("/models/{model_id}", response_model=TrainingModel)
-def update_model(
-    model_id: str,
-    config: TrainingModelConfig,
-    store: ModelStorePort = Depends(get_model_store),
-) -> TrainingModel:
-    model = store.update(model_id, config)
-    if model is None:
-        raise HTTPException(status_code=404, detail="Model not found")
-    return model
-
-
-@router.delete("/models/{model_id}", status_code=204)
-def delete_model(
-    model_id: str,
-    store: ModelStorePort = Depends(get_model_store),
-) -> None:
-    deleted = store.delete(model_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Model not found")
+class ExportRequest(BaseModel):
+    remote_backend: str = ""
+    remote_run_id: str = ""
 
 
 # ---------------------------------------------------------------------------
-# List runs for a model
+# Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get("/models/{model_id}/runs", response_model=list[RunRecord])
-def list_model_runs(
-    model_id: str,
-    run_store: RunStorePort = Depends(get_run_store),
-) -> list[RunRecord]:
-    return run_store.list(model_id=model_id)
+@router.get("", response_model=list[RunRecord])
+def list_runs(run_store: RunStorePort = Depends(get_run_store)) -> list[RunRecord]:
+    return run_store.list()
 
 
-# ---------------------------------------------------------------------------
-# Activate model (hot-swap inference adapter)
-# ---------------------------------------------------------------------------
-
-@router.post("/models/{model_id}/activate", response_model=TrainingModel)
-def activate_model(
-    model_id: str,
-    store: ModelStorePort = Depends(get_model_store),
-) -> TrainingModel:
-    model = store.activate(model_id)
-    if model is None:
-        raise HTTPException(status_code=404, detail="Model not found")
-    if not model.gguf_path:
-        raise HTTPException(
-            status_code=409,
-            detail="Model has no exported GGUF yet — run a training pipeline first",
-        )
-
-    from adapters.inference import LlamaCppInferenceAdapter
-    from adapters.storage import LocalStorageAdapter
-    from interactors.api.app import configure
-    from interactors.temporal.activities import _get_storage
-
-    try:
-        storage = _get_storage()
-    except RuntimeError:
-        storage = LocalStorageAdapter()
-
-    local_path = Path("models/cache") / model.id / "model.gguf"
-    try:
-        storage.download(model.gguf_path, local_path)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to load model from storage: {exc}") from exc
-
-    configure(LlamaCppInferenceAdapter(model_path=str(local_path)))
-    logger.info("Activated model %s — gguf_path=%s", model.id, model.gguf_path)
-    return model
+@router.get("/{run_id}", response_model=RunRecord)
+def get_run(run_id: str, run_store: RunStorePort = Depends(get_run_store)) -> RunRecord:
+    run = run_store.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
 
 
-# ---------------------------------------------------------------------------
-# Trigger training run
-# ---------------------------------------------------------------------------
-
-@router.post("/models/{model_id}/trigger", status_code=202)
+@router.post("/trigger", status_code=202)
 async def trigger_run(
-    model_id: str,
+    body: TriggerRunRequest,
     store: ModelStorePort = Depends(get_model_store),
     run_store: RunStorePort = Depends(get_run_store),
 ) -> dict[str, str]:
-    model = store.get(model_id)
+    model = store.get(body.model_id)
     if model is None:
         raise HTTPException(status_code=404, detail="Model not found")
+
+    epochs = body.epochs if body.epochs is not None else model.epochs
+    patience = body.patience if body.patience is not None else model.patience
+    warmup_ratio = body.warmup_ratio if body.warmup_ratio is not None else model.warmup_ratio
+    skip_generate = body.skip_generate if body.skip_generate is not None else model.skip_generate
+    remote_backend = body.remote_backend if body.remote_backend is not None else model.remote_backend
+    base_model = body.base_model if body.base_model is not None else model.base_model
+    if remote_backend == "local":
+        remote_backend = ""
 
     try:
         from temporalio.client import Client
@@ -181,12 +98,12 @@ async def trigger_run(
             model_id=model.id,
             model_name=model.name,
             run_id=run_id,
-            epochs=model.epochs,
-            patience=model.patience,
-            warmup_ratio=model.warmup_ratio,
-            skip_generate=model.skip_generate,
-            remote_backend="" if model.remote_backend == "local" else model.remote_backend,
-            model=model.base_model,
+            epochs=epochs,
+            patience=patience,
+            warmup_ratio=warmup_ratio,
+            skip_generate=skip_generate,
+            remote_backend=remote_backend,
+            model=base_model,
             data_dir=f"data/workflow/{run_id}",
             output_dir=f"data/workflow/{run_id}/checkpoint",
             gguf_output=f"data/workflow/{run_id}/model.gguf",
@@ -199,33 +116,19 @@ async def trigger_run(
             task_queue=TASK_QUEUE,
         )
 
-        logger.info("Training triggered: model=%s run_id=%s workflow_id=%s", model_id, run_id, workflow_id)
+        logger.info(
+            "Training triggered: model=%s run_id=%s workflow_id=%s",
+            body.model_id, run_id, workflow_id,
+        )
         return {"workflow_id": workflow_id, "run_id": run_id}
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Failed to trigger training workflow for model %s", model_id)
+        logger.exception("Failed to trigger training workflow for model %s", body.model_id)
         raise HTTPException(status_code=500, detail="Failed to start training workflow")
 
 
-# ---------------------------------------------------------------------------
-# Run management
-# ---------------------------------------------------------------------------
-
-@router.get("/runs", response_model=list[RunRecord])
-def list_runs(run_store: RunStorePort = Depends(get_run_store)) -> list[RunRecord]:
-    return run_store.list()
-
-
-@router.get("/runs/{run_id}", response_model=RunRecord)
-def get_run(run_id: str, run_store: RunStorePort = Depends(get_run_store)) -> RunRecord:
-    run = run_store.get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
-    return run
-
-
-@router.post("/runs/{run_id}/activate", response_model=RunRecord)
+@router.post("/{run_id}/activate", response_model=RunRecord)
 def activate_run(
     run_id: str,
     run_store: RunStorePort = Depends(get_run_store),
@@ -241,7 +144,7 @@ def activate_run(
 
     from adapters.inference import LlamaCppInferenceAdapter
     from adapters.storage import LocalStorageAdapter
-    from interactors.api.app import configure
+    from interactors.api.deps import configure
     from interactors.temporal.activities import _get_storage
 
     try:
@@ -261,29 +164,13 @@ def activate_run(
     return run
 
 
-# ---------------------------------------------------------------------------
-# Re-evaluate and download-export existing runs
-# ---------------------------------------------------------------------------
-
-class EvaluateRequest(BaseModel):
-    remote_backend: str = ""
-    remote_run_id: str = ""
-
-
-class ExportRequest(BaseModel):
-    remote_backend: str = ""
-    remote_run_id: str = ""
-
-
-
-@router.post("/runs/{run_id}/evaluate", status_code=202)
+@router.post("/{run_id}/evaluate", status_code=202)
 async def evaluate_run(
     run_id: str,
     body: EvaluateRequest = EvaluateRequest(),
     run_store: RunStorePort = Depends(get_run_store),
     store: ModelStorePort = Depends(get_model_store),
 ) -> dict[str, str]:
-    """Start an async eval workflow for an existing run. Poll GET /api/runs/{run_id} for status."""
     run = run_store.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -329,14 +216,13 @@ async def evaluate_run(
         raise HTTPException(status_code=500, detail="Failed to start evaluation workflow")
 
 
-@router.post("/runs/{run_id}/export", status_code=202)
+@router.post("/{run_id}/export", status_code=202)
 async def export_run(
     run_id: str,
     body: ExportRequest = ExportRequest(),
     run_store: RunStorePort = Depends(get_run_store),
     store: ModelStorePort = Depends(get_model_store),
 ) -> dict[str, str]:
-    """Start an async export workflow for an existing run. Poll GET /api/runs/{run_id} for status."""
     run = run_store.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")

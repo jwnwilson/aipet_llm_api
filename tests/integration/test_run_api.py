@@ -12,12 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from interactors.api.app import app
-from interactors.api.training_routes import (
-    configure_model_store,
-    configure_run_store,
-    get_model_store,
-    get_run_store,
-)
+from interactors.api.deps import get_model_store, get_run_store
 from domain.models import RunStatus, TrainingModelConfig
 from adapters.database import Base, init_db
 from adapters.database.model_store import SQLAlchemyModelStore
@@ -81,7 +76,7 @@ class TestTriggerRun:
             patch("temporalio.client.Client.connect", connect_mock),
             patch("pathlib.Path.mkdir"),
         ):
-            resp = await c.post(f"/api/models/{model.id}/trigger")
+            resp = await c.post("/api/runs/trigger", json={"model_id": model.id})
 
         assert resp.status_code == 202
         body = resp.json()
@@ -98,7 +93,7 @@ class TestTriggerRun:
             patch("temporalio.client.Client.connect", connect_mock),
             patch("pathlib.Path.mkdir"),
         ):
-            resp = await c.post(f"/api/models/{model.id}/trigger")
+            resp = await c.post("/api/runs/trigger", json={"model_id": model.id})
 
         run_id = resp.json()["run_id"]
         run = run_store.get(run_id)
@@ -109,7 +104,7 @@ class TestTriggerRun:
     @pytest.mark.asyncio
     async def test_trigger_unknown_model_returns_404(self, client):
         c, _, _ = client
-        resp = await c.post("/api/models/no-such-model/trigger")
+        resp = await c.post("/api/runs/trigger", json={"model_id": "no-such-model"})
         assert resp.status_code == 404
 
 
@@ -165,7 +160,7 @@ class TestActivateRun:
         with (
             patch("interactors.temporal.activities._get_storage", return_value=mock_storage),
             patch("adapters.inference.LlamaCppInferenceAdapter"),
-            patch("interactors.api.app.configure"),
+            patch("interactors.api.deps.configure"),
         ):
             resp = await c.post(f"/api/runs/{run.id}/activate")
 
@@ -199,28 +194,3 @@ class TestActivateRun:
         assert resp.status_code == 404
 
 
-class TestListModelRuns:
-    @pytest.mark.asyncio
-    async def test_returns_only_runs_for_given_model(self, client_with_model):
-        c, model, run_store = client_with_model
-        from domain.models import RunConfig
-
-        other_model = SQLAlchemyModelStore(
-            create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        )
-        run_store.create(RunConfig(model_id=model.id, workflow_id="wf-1"))
-        run_store.create(RunConfig(model_id=model.id, workflow_id="wf-2"))
-        run_store.create(RunConfig(model_id="other-model", workflow_id="wf-3"))
-
-        resp = await c.get(f"/api/models/{model.id}/runs")
-        assert resp.status_code == 200
-        runs = resp.json()
-        assert len(runs) == 2
-        assert all(r["model_id"] == model.id for r in runs)
-
-    @pytest.mark.asyncio
-    async def test_returns_empty_list_when_no_runs_for_model(self, client_with_model):
-        c, model, _ = client_with_model
-        resp = await c.get(f"/api/models/{model.id}/runs")
-        assert resp.status_code == 200
-        assert resp.json() == []

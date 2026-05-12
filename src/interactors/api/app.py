@@ -11,62 +11,40 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from domain.ports import InferencePort
-
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Adapter singleton — wired at startup or via configure() in tests
-# ---------------------------------------------------------------------------
-
-_adapter: InferencePort | None = None
-
-
-def get_adapter() -> InferencePort:
-    """FastAPI dependency that returns the active InferencePort adapter."""
-    if _adapter is None:
-        raise RuntimeError("InferencePort adapter has not been configured.")
-    return _adapter
-
-
-def configure(adapter: InferencePort) -> None:
-    """Wire in a concrete InferencePort implementation.
-
-    Called by the lifespan handler on startup, by the activate endpoint for
-    hot-swapping, and by tests to inject a stub.
-    """
-    global _adapter
-    _adapter = adapter
-
-
-# ---------------------------------------------------------------------------
-# Lifespan — load / unload the real adapter around the server's lifetime
-# ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from adapters.database import init_db, make_engine
-    from adapters.inference import LlamaCppInferenceAdapter
     from adapters.database.model_store import SQLAlchemyModelStore
     from adapters.database.run_store import SQLAlchemyRunStore
+    from adapters.inference import LlamaCppInferenceAdapter
     from adapters.storage import LocalStorageAdapter
-    from interactors.api.training_routes import configure_model_store
-    from interactors.api.training_routes import configure_run_store as configure_route_run_store
-    from interactors.temporal.activities import configure_run_store, configure_storage
+    from interactors.api.deps import (
+        clear_adapter,
+        configure,
+        configure_model_store,
+        configure_run_store,
+    )
+    from interactors.temporal.activities import (
+        configure_run_store as configure_activity_run_store,
+        configure_storage,
+    )
 
     engine = make_engine()
     init_db(engine)
+
     store = SQLAlchemyModelStore(engine)
     configure_model_store(store)
 
     run_store = SQLAlchemyRunStore(engine)
     configure_run_store(run_store)
-    configure_route_run_store(run_store)
+    configure_activity_run_store(run_store)
 
     storage = LocalStorageAdapter()
     configure_storage(storage)
 
-    # Startup strategy: prefer the DB-flagged active model; fall back to env var.
     active = store.active()
     if active and active.gguf_path:
         local_path = Path("models/cache") / active.id / "model.gguf"
@@ -89,16 +67,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
-        global _adapter
-        _adapter = None
+        clear_adapter()
 
 
-# ---------------------------------------------------------------------------
-# Application
-# ---------------------------------------------------------------------------
-
-from interactors.api.routes import router  # noqa: E402
-from interactors.api.training_routes import router as training_router  # noqa: E402
+from interactors.api.routes.inference import router as inference_router  # noqa: E402
+from interactors.api.routes.models import router as models_router  # noqa: E402
+from interactors.api.routes.runs import router as runs_router  # noqa: E402
 
 app = FastAPI(title="aipet-llm inference service", lifespan=lifespan)
 
@@ -110,5 +84,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router)
-app.include_router(training_router)
+app.include_router(inference_router)
+app.include_router(models_router)
+app.include_router(runs_router)

@@ -93,6 +93,8 @@ class TrainConfig:
     remote_backend: str = ""
     experiment_name: str = ""
     db_run_id: str = ""  # DB RunRecord.id for progress updates; "" = no tracking
+    # None = auto-detect based on model size; True = always QLoRA; False = never QLoRA.
+    force_qlora: bool | None = None
 
 
 @dataclass
@@ -242,6 +244,7 @@ async def _train_local(config: TrainConfig) -> CheckpointPath:
                 patience=config.patience,
                 warmup_ratio=config.warmup_ratio,
                 dry_run=config.dry_run,
+                force_qlora=config.force_qlora,
             ),
         )
     except Exception as exc:
