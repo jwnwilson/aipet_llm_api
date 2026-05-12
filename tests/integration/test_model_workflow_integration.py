@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -91,18 +92,14 @@ async def test_workflow_updates_run_status_in_db():
         gguf_output="data/test/model.gguf",
     )
 
-    patches = [
-        patch("domain.train.dataset.generate", return_value=True),
-        patch("domain.train.trainer.train"),
-        patch("domain.train.evaluate.load_hf_pipeline", return_value=MagicMock()),
-        patch("domain.train.evaluate.infer_hf", return_value='{"action": "IDLE"}'),
-        patch("domain.train.evaluate.evaluate", side_effect=_fake_evaluate),
-        patch("domain.train.export.export"),
-    ]
-    for p in patches:
-        p.start()
+    with ExitStack() as stack:
+        stack.enter_context(patch("domain.train.dataset.generate", return_value=True))
+        stack.enter_context(patch("domain.train.trainer.train"))
+        stack.enter_context(patch("domain.train.evaluate.load_hf_pipeline", return_value=MagicMock()))
+        stack.enter_context(patch("domain.train.evaluate.infer_hf", return_value='{"action": "IDLE"}'))
+        stack.enter_context(patch("domain.train.evaluate.evaluate", side_effect=_fake_evaluate))
+        stack.enter_context(patch("domain.train.export.export"))
 
-    try:
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,
@@ -116,9 +113,6 @@ async def test_workflow_updates_run_status_in_db():
                     id="wf-status-test",
                     task_queue="aipet-training",
                 )
-    finally:
-        for p in reversed(patches):
-            p.stop()
 
     final_run = run_store.get(run.id)
     assert final_run.status == RunStatus.COMPLETED
