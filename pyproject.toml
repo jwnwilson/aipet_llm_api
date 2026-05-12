@@ -46,4 +46,6 @@ markers = [
     "slow: marks tests as slow — downloads models, trains, exports (deselect with '-m \"not slow\"')",
     "gpu: marks tests that require a CUDA GPU (skip on CPU/MPS machines)",
     "kaggle: marks tests that submit real Kaggle kernels (requires KAGGLE_USERNAME + KAGGLE_KEY or KAGGLE_API_TOKEN)",
+    "runpod: marks tests that provision real RunPod pods (requires RUNPOD_API_KEY + AWS credentials)",
+    "vastai: marks tests that rent real Vast.ai instances (requires VAST_API_KEY + AWS credentials)",
 ]
