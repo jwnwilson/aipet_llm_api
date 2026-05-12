@@ -78,14 +78,24 @@ def _dequantize_linear4bit(model: "AutoModelForCausalLM") -> None:
         return
 
     replaced = 0
+    skipped = 0
     for name, module in list(model.named_modules()):
         if not isinstance(module, bnb_nn.Linear4bit):
             continue
         parent_path, _, child_name = name.rpartition(".")
         parent = model.get_submodule(parent_path) if parent_path else model
         with torch.no_grad():
-            w = module.weight.dequantize().to(torch.float16)
-        linear = torch.nn.Linear(w.shape[1], w.shape[0], bias=module.bias is not None, dtype=torch.float16)
+            w = module.weight.dequantize()
+        # After merge_and_unload(), quant_state may be None — dequantize() then
+        # returns the raw packed uint8 bytes recast as the storage dtype rather than
+        # the full float16 weight.  Detect this by checking element count: packed NF4
+        # stores 2 weights per byte so the tensor is half the expected size.
+        expected_numel = module.out_features * module.in_features
+        if w.numel() != expected_numel:
+            skipped += 1
+            continue
+        w = w.to(torch.float16).reshape(module.out_features, module.in_features)
+        linear = torch.nn.Linear(module.in_features, module.out_features, bias=module.bias is not None, dtype=torch.float16)
         linear.weight = torch.nn.Parameter(w)
         if module.bias is not None:
             linear.bias = torch.nn.Parameter(module.bias.to(torch.float16))
@@ -94,6 +104,13 @@ def _dequantize_linear4bit(model: "AutoModelForCausalLM") -> None:
 
     if replaced:
         print(f"  Explicitly dequantized {replaced} remaining Linear4bit layer(s) to float16.")
+    if skipped:
+        raise RuntimeError(
+            f"  {skipped} Linear4bit layer(s) could not be dequantized: quant_state was "
+            "lost during merge_and_unload(). This indicates a bitsandbytes/PEFT version "
+            "incompatibility with QLoRA merge. Retrain without QLoRA (raise _use_qlora "
+            "threshold) or use a compatible bitsandbytes version."
+        )
 
 
 def load_jsonl(path: str) -> list[dict]:
@@ -379,7 +396,7 @@ def train(
             _h = getattr(_cfg, "hidden_size", 0)
             _L = getattr(_cfg, "num_hidden_layers", 0)
             _V = getattr(_cfg, "vocab_size", 0)
-            _use_qlora = (_V * _h + _L * 12 * _h * _h) > 1_000_000_000
+            _use_qlora = (_V * _h + _L * 12 * _h * _h) > 3_000_000_000
         except Exception:
             pass
 
@@ -516,27 +533,37 @@ def train(
     train_result = trainer.train()
 
     if use_lora:
-        # Merge adapter weights into the base model so the saved checkpoint is a
-        # standard HF model — no PEFT dependency needed for inference or export.
-        print("Merging LoRA adapters into base model …")
-        merged = trainer.model.merge_and_unload()
-
-        # Some PEFT versions leave Linear4bit modules un-dequantized after
-        # merge_and_unload(), which causes .absmax/.quant_map tensors to be
-        # written to disk — tensors llama.cpp's converter cannot map.
-        # Explicitly replace any remaining Linear4bit with nn.Linear in fp16.
         if _use_qlora:
-            _dequantize_linear4bit(merged)
+            # QLoRA: merge_and_unload() on a 4-bit model loses quant_state, so
+            # dequantize()-in-place produces corrupt weights.  Instead:
+            # 1. Save only the tiny LoRA adapter from the trained model.
+            # 2. Reload the base in float16 (no quantization).
+            # 3. Merge the adapter onto the clean float16 base and save.
+            print("QLoRA — saving adapter then re-merging onto float16 base …")
+            adapter_dir = Path(output_dir) / "_adapter"
+            trainer.model.save_pretrained(str(adapter_dir))
+            tokenizer.save_pretrained(str(adapter_dir))
+
+            print(f"  Reloading base model {model} in float16 for clean merge …")
+            from peft import PeftModel
+            base = AutoModelForCausalLM.from_pretrained(
+                model, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True,
+            )
+            peft_model = PeftModel.from_pretrained(base, str(adapter_dir))
+            print("  Merging LoRA adapters into float16 base …")
+            merged = peft_model.merge_and_unload()
+        else:
+            print("Merging LoRA adapters into base model …")
+            merged = trainer.model.merge_and_unload()
 
         merged.save_pretrained(output_dir)
-        # Strip any residual quantization_config from config.json.
         _strip_bnb_config(Path(output_dir) / "config.json")
-        # Remove intermediate checkpoint-XXXX dirs — they held adapter-only weights
-        # that are now superseded by the merged model, freeing ~N×28MB.
         for _d in Path(output_dir).iterdir():
             if _d.is_dir() and _d.name.startswith("checkpoint-"):
                 shutil.rmtree(_d)
                 print(f"  Removed {_d.name}")
+        if _use_qlora:
+            shutil.rmtree(adapter_dir, ignore_errors=True)
     else:
         trainer.save_model()
     tokenizer.save_pretrained(output_dir)
