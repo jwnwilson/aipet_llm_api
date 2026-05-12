@@ -214,6 +214,9 @@ def _make_remote_adapter(backend: str) -> RemoteTrainingPort:
     if backend == "runpod":
         from adapters.compute.runpod import RunPodTrainingAdapter
         return RunPodTrainingAdapter()
+    if backend == "vastai":
+        from adapters.compute.vastai import VastAiTrainingAdapter
+        return VastAiTrainingAdapter()
     raise ApplicationError(f"Unknown remote_backend: {backend!r}")
 
 

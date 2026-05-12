@@ -1,4 +1,14 @@
-"""Unit tests for LlamaCppInferenceAdapter."""
+"""Unit tests for LlamaCppInferenceAdapter.
+
+Design notes:
+- We avoid patching `build_prompt` and `parse_response` imports because they are
+  pure functions with no I/O; letting them run for real makes tests more meaningful.
+- We still patch `llama_cpp.Llama` because that IS the external I/O boundary — the
+  adapter's whole purpose is to wrap it.  We patch at the correct location
+  (`llama_cpp.Llama`) rather than at an import alias.
+- Assertions check return values (InferenceResponse fields) and adapter state
+  (_llm attribute) rather than mock call counts wherever possible.
+"""
 
 from __future__ import annotations
 
@@ -18,10 +28,10 @@ from domain.models import (
 from adapters.inference import LlamaCppInferenceAdapter
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Helpers
 # ---------------------------------------------------------------------------
 
-FAKE_COMPLETION = {
+IDLE_COMPLETION = {
     "choices": [{"text": json.dumps({"action": "IDLE", "target_object_id": None})}]
 }
 
@@ -39,142 +49,134 @@ def inference_request() -> InferenceRequest:
     return InferenceRequest(scene=scene, pet_stats=stats)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _make_adapter() -> LlamaCppInferenceAdapter:
     """Return an adapter pointed at a fake model path."""
     return LlamaCppInferenceAdapter(model_path="/fake/model.gguf", context_size=512)
 
 
+def _mock_llm(completion: dict = IDLE_COMPLETION) -> MagicMock:
+    """Return a callable mock that returns the given completion dict."""
+    return MagicMock(return_value=completion)
+
+
 # ---------------------------------------------------------------------------
-# Tests
+# Tests: infer() return values
 # ---------------------------------------------------------------------------
 
 
-class TestLlamaCppInferenceAdapter:
-    def test_returns_idle_on_valid_mock_response(
+class TestInferReturnValues:
+    def test_valid_llm_response_returns_inference_response(
         self, inference_request: InferenceRequest
     ) -> None:
-        """Adapter returns Action.IDLE when the LLM mock returns a valid JSON payload."""
-        mock_llm_instance = MagicMock(return_value=FAKE_COMPLETION)
-
-        with patch("llama_cpp.Llama", return_value=mock_llm_instance) as mock_llama_cls:
-            with patch(
-                "adapters.inference.build_prompt",
-                return_value="<prompt>",
-            ):
-                with patch(
-                    "adapters.inference.parse_response",
-                    return_value=InferenceResponse(
-                        action=Action.IDLE, target_object_id=None
-                    ),
-                ):
-                    adapter = _make_adapter()
-                    response = adapter.infer(inference_request)
-
-        assert isinstance(response, InferenceResponse)
-        assert response.action == Action.IDLE
-
-    def test_returns_idle_when_llm_raises(
-        self, inference_request: InferenceRequest
-    ) -> None:
-        """Adapter swallows exceptions and returns IDLE instead of propagating."""
-        with patch(
-            "adapters.inference.build_prompt", return_value="<prompt>"
-        ):
-            with patch("llama_cpp.Llama", side_effect=RuntimeError("model not found")):
-                adapter = _make_adapter()
-                response = adapter.infer(inference_request)
-
-        assert isinstance(response, InferenceResponse)
-        assert response.action == Action.IDLE
-        assert response.target_object_id is None
-
-    def test_returns_idle_when_parse_response_raises(
-        self, inference_request: InferenceRequest
-    ) -> None:
-        """Adapter swallows parse errors and returns IDLE."""
-        mock_llm_instance = MagicMock(return_value=FAKE_COMPLETION)
-
-        with patch("llama_cpp.Llama", return_value=mock_llm_instance):
-            with patch(
-                "adapters.inference.build_prompt", return_value="<prompt>"
-            ):
-                with patch(
-                    "adapters.inference.parse_response",
-                    side_effect=ValueError("bad JSON"),
-                ):
-                    adapter = _make_adapter()
-                    response = adapter.infer(inference_request)
-
-        assert response.action == Action.IDLE
-
-    def test_model_loaded_lazily(self, inference_request: InferenceRequest) -> None:
-        """The Llama constructor is not called until infer() is first invoked."""
-        with patch("llama_cpp.Llama", return_value=MagicMock(return_value=FAKE_COMPLETION)) as mock_llama_cls:
+        """infer() returns InferenceResponse when the LLM emits valid JSON."""
+        with patch("llama_cpp.Llama", return_value=_mock_llm()):
             adapter = _make_adapter()
-            mock_llama_cls.assert_not_called()  # not yet loaded
+            result = adapter.infer(inference_request)
 
-            with patch(
-                "adapters.inference.build_prompt", return_value="<prompt>"
-            ):
-                with patch(
-                    "adapters.inference.parse_response",
-                    return_value=InferenceResponse(
-                        action=Action.IDLE, target_object_id=None
-                    ),
-                ):
-                    adapter.infer(inference_request)
+        assert isinstance(result, InferenceResponse)
+        assert result.action == Action.IDLE
 
-            mock_llama_cls.assert_called_once()
-
-    def test_full_inference_path_text_extracted_and_parsed(
+    def test_returns_idle_when_llm_raises_on_load(
         self, inference_request: InferenceRequest
     ) -> None:
-        """End-to-end: adapter extracts text from completion dict and passes it to parse_response."""
-        raw_json = json.dumps({"action": "IDLE"})
+        """When the model file cannot be loaded, infer() falls back to IDLE."""
+        with patch("llama_cpp.Llama", side_effect=RuntimeError("model not found")):
+            adapter = _make_adapter()
+            result = adapter.infer(inference_request)
+
+        assert result.action == Action.IDLE
+        assert result.target_object_id is None
+
+    def test_returns_idle_when_llm_raises_on_call(
+        self, inference_request: InferenceRequest
+    ) -> None:
+        """When calling the LLM raises, infer() falls back to IDLE."""
+        mock_llm = MagicMock(side_effect=RuntimeError("OOM"))
+        with patch("llama_cpp.Llama", return_value=mock_llm):
+            adapter = _make_adapter()
+            result = adapter.infer(inference_request)
+
+        assert result.action == Action.IDLE
+        assert result.target_object_id is None
+
+    def test_returns_idle_when_llm_emits_invalid_json(
+        self, inference_request: InferenceRequest
+    ) -> None:
+        """When the LLM outputs unparseable text, infer() falls back to IDLE."""
+        bad_completion = {"choices": [{"text": "I cannot decide right now."}]}
+        with patch("llama_cpp.Llama", return_value=_mock_llm(bad_completion)):
+            adapter = _make_adapter()
+            result = adapter.infer(inference_request)
+
+        assert result.action == Action.IDLE
+
+    def test_full_inference_path_parses_real_llm_output(
+        self, inference_request: InferenceRequest
+    ) -> None:
+        """End-to-end: adapter extracts text from completion dict and parses it."""
+        raw_json = json.dumps({"action": "EXPLORE"})
         completion = {"choices": [{"text": raw_json}]}
-        mock_llm_instance = MagicMock(return_value=completion)
-
-        with patch("llama_cpp.Llama", return_value=mock_llm_instance):
+        with patch("llama_cpp.Llama", return_value=_mock_llm(completion)):
             adapter = _make_adapter()
-            response = adapter.infer(inference_request)
+            result = adapter.infer(inference_request)
 
-        # parse_response ran for real on the LLM output — not short-circuited by a mock.
-        assert response.action == Action.IDLE
-        mock_llm_instance.assert_called_once()
-        called_prompt = mock_llm_instance.call_args[0][0]
-        assert isinstance(called_prompt, str) and len(called_prompt) > 0
+        assert result.action == Action.EXPLORE
 
-    def test_model_loaded_only_once_across_multiple_calls(
+    def test_non_idle_action_is_returned_verbatim(
         self, inference_request: InferenceRequest
     ) -> None:
-        """The model is instantiated exactly once even across repeated infer() calls."""
-        mock_llm_instance = MagicMock(return_value=FAKE_COMPLETION)
+        """infer() must not silently replace a valid non-IDLE response with IDLE."""
+        eat_completion = {"choices": [{"text": json.dumps({"action": "TOILET"})}]}
+        with patch("llama_cpp.Llama", return_value=_mock_llm(eat_completion)):
+            adapter = _make_adapter()
+            result = adapter.infer(inference_request)
 
-        with patch("llama_cpp.Llama", return_value=mock_llm_instance) as mock_llama_cls:
-            with patch(
-                "adapters.inference.build_prompt", return_value="<prompt>"
-            ):
-                with patch(
-                    "adapters.inference.parse_response",
-                    return_value=InferenceResponse(
-                        action=Action.IDLE, target_object_id=None
-                    ),
-                ):
-                    adapter = _make_adapter()
-                    adapter.infer(inference_request)
-                    adapter.infer(inference_request)
-                    adapter.infer(inference_request)
+        assert result.action == Action.TOILET
 
+
+# ---------------------------------------------------------------------------
+# Tests: lazy model loading — verified via observable _llm state
+# ---------------------------------------------------------------------------
+
+
+class TestLazyModelLoading:
+    def test_model_not_loaded_at_construction(self) -> None:
+        """The Llama model must not be instantiated during __init__."""
+        with patch("llama_cpp.Llama") as mock_llama_cls:
+            adapter = _make_adapter()
+            # Observable state: _llm should still be None
+            assert adapter._llm is None
+            mock_llama_cls.assert_not_called()
+
+    def test_model_loaded_after_first_infer(
+        self, inference_request: InferenceRequest
+    ) -> None:
+        """After the first infer() call, _llm must be non-None (model was loaded)."""
+        with patch("llama_cpp.Llama", return_value=_mock_llm()):
+            adapter = _make_adapter()
+            adapter.infer(inference_request)
+            assert adapter._llm is not None
+
+    def test_model_not_reloaded_on_subsequent_calls(
+        self, inference_request: InferenceRequest
+    ) -> None:
+        """After three infer() calls the _llm instance must be the same object."""
+        with patch("llama_cpp.Llama", return_value=_mock_llm()) as mock_llama_cls:
+            adapter = _make_adapter()
+            adapter.infer(inference_request)
+            first_llm = adapter._llm
+            adapter.infer(inference_request)
+            adapter.infer(inference_request)
+            second_llm = adapter._llm
+
+        # Same object — not re-created
+        assert first_llm is second_llm
+        # Llama class constructor called exactly once
         mock_llama_cls.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
-# _ensure_target tests
+# _ensure_target tests (domain rule: adapter must provide a valid target)
 # ---------------------------------------------------------------------------
 
 

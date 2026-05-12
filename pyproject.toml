@@ -27,6 +27,7 @@ dependencies = [
     "kaggle>=1.6",
     "boto3>=1.35",
     "runpod>=1.7",
+    "vastai>=1.0",
     "sqlalchemy>=2.0.49",
     "alembic>=1.18.4",
 ]
@@ -44,4 +45,5 @@ testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow — downloads models, trains, exports (deselect with '-m \"not slow\"')",
     "gpu: marks tests that require a CUDA GPU (skip on CPU/MPS machines)",
+    "kaggle: marks tests that submit real Kaggle kernels (requires KAGGLE_USERNAME + KAGGLE_KEY or KAGGLE_API_TOKEN)",
 ]
