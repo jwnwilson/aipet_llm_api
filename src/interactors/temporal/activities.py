@@ -280,7 +280,16 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
                 f"Remote training failed (adapter={type(adapter).__name__}, run_id={run_id})"
             )
 
-        await asyncio.sleep(60)
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            activity.logger.warning(
+                "train_activity cancelled while polling (adapter=%s, run_id=%s, elapsed=%ds)",
+                type(adapter).__name__,
+                run_id,
+                int(time.time() - started_at),
+            )
+            raise
 
 
 @activity.defn

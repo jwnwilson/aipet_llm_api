@@ -7,7 +7,7 @@ OUTPUT_DIR  ?= models/checkpoints
 IMAGE       ?= aipet-llm
 RPI_HOST    ?= raspberrypi.local
 
-EXPERIMENT      ?= aipet-v2
+EXPERIMENT      ?= aipet-v3
 EPOCHS          ?= 5
 PATIENCE        ?= 3
 REMOTE_BACKEND  ?= kaggle
