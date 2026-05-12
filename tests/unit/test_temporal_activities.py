@@ -19,11 +19,16 @@ from interactors.temporal.activities import (
     GGUFPath,
     TrainConfig,
     _parse_valid_pct,
+    configure_model_store,
+    configure_run_store,
     configure_storage,
     evaluate_activity,
     export_activity,
+    finalise_run_activity,
     generate_dataset_activity,
+    save_gguf_path_activity,
     train_activity,
+    update_run_status_activity,
 )
 
 
@@ -85,6 +90,7 @@ async def test_train_activity_delegates_to_domain():
         patience=2,
         warmup_ratio=0.05,
         dry_run=False,
+        force_qlora=None,
     )
     assert result == CheckpointPath(path="models/checkpoints")
 
@@ -188,14 +194,17 @@ async def test_evaluate_remote_kaggle_fallback_passes_inner_checkpoint_to_local(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_export_activity_uses_model_name_for_storage_key():
-    from unittest.mock import MagicMock
+@pytest.fixture()
+def mock_storage() -> MagicMock:
+    """Wire a fresh MagicMock StoragePort into the activities module."""
     from adapters.storage.local import LocalStorageAdapter
-
     storage = MagicMock(spec=LocalStorageAdapter)
     configure_storage(storage)
+    return storage
 
+
+@pytest.mark.asyncio
+async def test_export_activity_uses_model_name_for_storage_key(mock_storage):
     with patch("domain.train.export.export"):
         result = await ENV.run(
             export_activity,
@@ -212,13 +221,7 @@ async def test_export_activity_uses_model_name_for_storage_key():
 
 
 @pytest.mark.asyncio
-async def test_export_activity_model_name_takes_precedence_over_pipeline_run_id():
-    from unittest.mock import MagicMock
-    from adapters.storage.local import LocalStorageAdapter
-
-    storage = MagicMock(spec=LocalStorageAdapter)
-    configure_storage(storage)
-
+async def test_export_activity_model_name_takes_precedence_over_pipeline_run_id(mock_storage):
     with patch("domain.train.export.export"):
         result = await ENV.run(
             export_activity,
@@ -235,13 +238,7 @@ async def test_export_activity_model_name_takes_precedence_over_pipeline_run_id(
 
 
 @pytest.mark.asyncio
-async def test_export_activity_uses_pipeline_run_id_for_storage_key():
-    from unittest.mock import MagicMock
-    from adapters.storage.local import LocalStorageAdapter
-
-    storage = MagicMock(spec=LocalStorageAdapter)
-    configure_storage(storage)
-
+async def test_export_activity_uses_pipeline_run_id_for_storage_key(mock_storage):
     with patch("domain.train.export.export"):
         result = await ENV.run(
             export_activity,
@@ -253,18 +250,14 @@ async def test_export_activity_uses_pipeline_run_id_for_storage_key():
             ),
         )
 
-    storage.upload.assert_called_once()
+    # The GGUFPath is the storage key returned by the activity.
     assert result == GGUFPath(path="workflow/r1/model.gguf")
+    # Verify the artifact was handed to storage (port contract boundary).
+    mock_storage.upload.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_export_activity_pipeline_run_id_takes_precedence_over_model_id():
-    from unittest.mock import MagicMock
-    from adapters.storage.local import LocalStorageAdapter
-
-    storage = MagicMock(spec=LocalStorageAdapter)
-    configure_storage(storage)
-
+async def test_export_activity_pipeline_run_id_takes_precedence_over_model_id(mock_storage):
     with patch("domain.train.export.export"):
         result = await ENV.run(
             export_activity,
@@ -280,21 +273,15 @@ async def test_export_activity_pipeline_run_id_takes_precedence_over_model_id():
 
 
 @pytest.mark.asyncio
-async def test_export_activity_falls_back_to_model_id_when_no_pipeline_run_id():
-    from unittest.mock import MagicMock
-    from adapters.storage.local import LocalStorageAdapter
-
-    storage = MagicMock(spec=LocalStorageAdapter)
-    configure_storage(storage)
-
+async def test_export_activity_falls_back_to_model_id_when_no_pipeline_run_id(mock_storage):
     with patch("domain.train.export.export"):
         result = await ENV.run(
             export_activity,
             ExportConfig(checkpoint_path="models/checkpoints", gguf_output="models/gguf/m.gguf", model_id="m"),
         )
 
-    storage.upload.assert_called_once()
     assert result == GGUFPath(path="gguf/m.gguf")
+    mock_storage.upload.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -566,3 +553,154 @@ class TestPollLocalProgress:
                 await acts._poll_local_progress("run-42", str(tmp_path))
 
         mock_store.update_progress.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# finalise_run_activity
+# ---------------------------------------------------------------------------
+
+
+class TestFinaliseRunActivity:
+    """Verify finalise_run_activity persists eval result and updates run status."""
+
+    def _make_run_store(self) -> MagicMock:
+        store = MagicMock()
+        return store
+
+    @pytest.mark.asyncio
+    async def test_passed_sets_status_completed(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = self._make_run_store()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+
+        await ENV.run(finalise_run_activity, "run-1", True, 0.97)
+
+        from domain.models import RunStatus
+        mock_store.update_status.assert_called_once_with("run-1", RunStatus.COMPLETED)
+
+    @pytest.mark.asyncio
+    async def test_failed_sets_status_failed(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = self._make_run_store()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+
+        await ENV.run(finalise_run_activity, "run-2", False, 0.75)
+
+        from domain.models import RunStatus
+        mock_store.update_status.assert_called_once_with("run-2", RunStatus.FAILED)
+
+    @pytest.mark.asyncio
+    async def test_persists_eval_valid_pct(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = self._make_run_store()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+
+        await ENV.run(finalise_run_activity, "run-3", True, 0.95)
+
+        mock_store.update_eval.assert_called_once_with("run-3", 0.95)
+
+
+# ---------------------------------------------------------------------------
+# update_run_status_activity
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateRunStatusActivity:
+    """Verify update_run_status_activity sets the correct RunStatus value."""
+
+    @pytest.mark.asyncio
+    async def test_sets_training_status(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+
+        await ENV.run(update_run_status_activity, "run-42", "training")
+
+        from domain.models import RunStatus
+        mock_store.update_status.assert_called_once_with("run-42", RunStatus.TRAINING)
+
+    @pytest.mark.asyncio
+    async def test_sets_evaluating_status(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+
+        await ENV.run(update_run_status_activity, "run-42", "evaluating")
+
+        from domain.models import RunStatus
+        mock_store.update_status.assert_called_once_with("run-42", RunStatus.EVALUATING)
+
+    @pytest.mark.asyncio
+    async def test_sets_completed_status(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+
+        await ENV.run(update_run_status_activity, "run-42", "completed")
+
+        from domain.models import RunStatus
+        mock_store.update_status.assert_called_once_with("run-42", RunStatus.COMPLETED)
+
+
+# ---------------------------------------------------------------------------
+# save_gguf_path_activity
+# ---------------------------------------------------------------------------
+
+
+class TestSaveGgufPathActivity:
+    """Verify save_gguf_path_activity updates the model record with the GGUF key."""
+
+    def _make_model(self) -> MagicMock:
+        from domain.models import TrainingModelConfig
+
+        model = MagicMock()
+        model.name = "my-model"
+        model.description = ""
+        model.base_model = "HuggingFaceTB/SmolLM2-360M"
+        model.train_data = "data/train.jsonl"
+        model.eval_data = "data/eval.jsonl"
+        model.epochs = 5
+        model.patience = 3
+        model.warmup_ratio = 0.05
+        model.remote_backend = "local"
+        model.skip_generate = False
+        model.gguf_path = ""
+        model.is_active = False
+        return model
+
+    @pytest.mark.asyncio
+    async def test_updates_gguf_path_on_model(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        model = self._make_model()
+        mock_store = MagicMock()
+        mock_store.get.return_value = model
+        monkeypatch.setattr(acts, "_model_store", mock_store)
+
+        await ENV.run(save_gguf_path_activity, "model-uuid", "gguf/my-model.gguf")
+
+        mock_store.update.assert_called_once()
+        call_args = mock_store.update.call_args
+        assert call_args[0][0] == "model-uuid"
+        # The updated config must have the new gguf_path
+        updated_config = call_args[0][1]
+        assert updated_config.gguf_path == "gguf/my-model.gguf"
+
+    @pytest.mark.asyncio
+    async def test_skips_update_when_model_not_found(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        mock_store.get.return_value = None
+        monkeypatch.setattr(acts, "_model_store", mock_store)
+
+        # Must not raise
+        await ENV.run(save_gguf_path_activity, "nonexistent-model", "gguf/x.gguf")
+
+        mock_store.update.assert_not_called()

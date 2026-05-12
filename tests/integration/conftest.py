@@ -25,8 +25,14 @@ def llama_cpp_ready() -> Path:
 
 @pytest.fixture(scope="session")
 def kaggle_credentials() -> None:
-    """Skip the test if Kaggle credentials are not configured in the environment."""
-    if not os.environ.get("KAGGLE_USERNAME") or not os.environ.get("KAGGLE_KEY"):
+    """Skip the test if Kaggle credentials are not configured in the environment.
+
+    Accepts either the legacy KAGGLE_KEY or the newer KAGGLE_API_TOKEN format.
+    """
+    has_username = bool(os.environ.get("KAGGLE_USERNAME"))
+    has_key = bool(os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN"))
+    if not has_username or not has_key:
         pytest.skip(
-            "Kaggle credentials not set — export KAGGLE_USERNAME and KAGGLE_KEY to run this test"
+            "Kaggle credentials not set — export KAGGLE_USERNAME and "
+            "KAGGLE_KEY (or KAGGLE_API_TOKEN) to run this test"
         )

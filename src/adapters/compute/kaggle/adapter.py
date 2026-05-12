@@ -164,7 +164,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         archive = dest / "checkpoint.tar.gz"
         if archive.exists():
             with tarfile.open(archive) as tf:
-                tf.extractall(dest)
+                tf.extractall(dest, filter="data")
             archive.unlink()
         # Find the directory that contains the HF model config
         for config_path in sorted(dest.rglob("config.json")):

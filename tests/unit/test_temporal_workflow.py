@@ -6,6 +6,7 @@ and patches all domain functions so no ML computation runs.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,10 +14,14 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from interactors.temporal.activities import (
+    configure_storage,
     evaluate_activity,
     export_activity,
+    finalise_run_activity,
     generate_dataset_activity,
+    save_gguf_path_activity,
     train_activity,
+    update_run_status_activity,
 )
 from interactors.temporal.workflows import ExperimentConfig, PipelineResult, TrainingPipelineWorkflow
 
@@ -42,12 +47,28 @@ def _dry_run_patches(eval_passes: bool = True):
     ]
 
 
-_ACTIVITIES = [generate_dataset_activity, train_activity, evaluate_activity, export_activity]
+def _configure_mock_storage() -> MagicMock:
+    """Wire a mock StoragePort into the activities module and return it."""
+    storage = MagicMock()
+    configure_storage(storage)
+    return storage
+
+
+_ACTIVITIES = [
+    generate_dataset_activity,
+    train_activity,
+    evaluate_activity,
+    export_activity,
+    finalise_run_activity,
+    save_gguf_path_activity,
+    update_run_status_activity,
+]
 
 
 @pytest.mark.asyncio
 async def test_training_pipeline_workflow_e2e_pass():
     """Happy path: all stages succeed and a GGUF is exported."""
+    _configure_mock_storage()
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -86,6 +107,7 @@ async def test_training_pipeline_workflow_e2e_pass():
 @pytest.mark.asyncio
 async def test_training_pipeline_workflow_e2e_eval_fail_skips_export():
     """When eval does not reach 95%, the workflow completes but skips export."""
+    _configure_mock_storage()
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -121,6 +143,7 @@ async def test_training_pipeline_workflow_e2e_eval_fail_skips_export():
 @pytest.mark.asyncio
 async def test_training_pipeline_workflow_e2e_skip_generate():
     """With skip_generate=True the dataset step is bypassed and existing paths are used."""
+    _configure_mock_storage()
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,

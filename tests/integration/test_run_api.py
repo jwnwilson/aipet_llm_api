@@ -150,22 +150,24 @@ class TestGetRun:
 
 class TestActivateRun:
     @pytest.mark.asyncio
-    async def test_activates_completed_run(self, client_with_model):
+    async def test_activates_completed_run_returns_200_with_run_record(self, client_with_model):
+        """Activating a completed run returns 200 and the run record body."""
         c, model, run_store = client_with_model
         from domain.models import RunConfig
         run = run_store.create(RunConfig(model_id=model.id, workflow_id="wf-y"))
         run_store.update_status(run.id, RunStatus.COMPLETED)
 
-        mock_storage = MagicMock()
         with (
-            patch("interactors.temporal.activities._get_storage", return_value=mock_storage),
+            patch("interactors.temporal.activities._get_storage", return_value=MagicMock()),
             patch("adapters.inference.LlamaCppInferenceAdapter"),
             patch("interactors.api.deps.configure"),
         ):
             resp = await c.post(f"/api/runs/{run.id}/activate")
 
         assert resp.status_code == 200
-        mock_storage.download.assert_called_once()
+        body = resp.json()
+        assert body["id"] == run.id
+        assert body["status"] == RunStatus.COMPLETED.value
 
     @pytest.mark.asyncio
     async def test_rejects_pending_run_with_409(self, client_with_model):
