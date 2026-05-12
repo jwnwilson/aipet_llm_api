@@ -17,7 +17,7 @@ MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 FAST_MODEL      ?= HuggingFaceTB/SmolLM2-135M
 FAST_DATA_DIR   ?= data/fast
 
-.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train colab-train colab-train-fast google-auth db-migrate db-revision help
+.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train runpod-train db-migrate db-revision help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -163,6 +163,15 @@ kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIE
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
 		--remote-backend kaggle \
+		--model $(MODEL) \
+		$(if $(SKIP_GENERATE),--skip-generate)
+
+runpod-train: ## Trigger a RunPod GPU training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL; requires AWS_S3_BUCKET + RUNPOD_API_KEY)
+	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+		--experiment-name $(EXPERIMENT) \
+		--epochs $(EPOCHS) \
+		--patience $(PATIENCE) \
+		--remote-backend runpod \
 		--model $(MODEL) \
 		$(if $(SKIP_GENERATE),--skip-generate)
 

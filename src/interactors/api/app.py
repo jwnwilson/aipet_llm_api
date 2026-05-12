@@ -14,13 +14,21 @@ from fastapi.middleware.cors import CORSMiddleware
 logger = logging.getLogger(__name__)
 
 
+def _make_storage_adapter():
+    """Return S3StorageAdapter when AWS_S3_BUCKET is set, otherwise LocalStorageAdapter."""
+    if os.getenv("AWS_S3_BUCKET"):
+        from adapters.storage.s3 import S3StorageAdapter
+        return S3StorageAdapter()
+    from adapters.storage.local import LocalStorageAdapter
+    return LocalStorageAdapter()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from adapters.database import init_db, make_engine
     from adapters.database.model_store import SQLAlchemyModelStore
     from adapters.database.run_store import SQLAlchemyRunStore
     from adapters.inference import LlamaCppInferenceAdapter
-    from adapters.storage import LocalStorageAdapter
     from interactors.api.deps import (
         clear_adapter,
         configure,
@@ -42,7 +50,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_run_store(run_store)
     configure_activity_run_store(run_store)
 
-    storage = LocalStorageAdapter()
+    storage = _make_storage_adapter()
     configure_storage(storage)
 
     active = store.active()
