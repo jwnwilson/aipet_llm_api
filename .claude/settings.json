@@ -15,5 +15,6 @@
       "Read(//private/tmp/claude-501/-Users-noel-projects-aipet_llm/f83c5126-c6b0-49bd-9ec7-4bcc6e47e37f/tasks/**)",
       "Bash(xargs ls *)"
     ]
-  }
+  },
+  "defaultMode": "auto"
 }

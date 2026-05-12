@@ -274,22 +274,29 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
         experiment_name=config.experiment_name or "aipet",
     )
 
+    loop = asyncio.get_event_loop()
+
+    # Run submit in an executor — it calls subprocess + time.sleep (blocks event loop).
+    heartbeat_task = asyncio.ensure_future(_heartbeat_loop("train_submit"))
     try:
-        run_id = adapter.submit(remote_config)
+        run_id = await loop.run_in_executor(None, lambda: adapter.submit(remote_config))
     except Exception as exc:
         raise ApplicationError(f"Remote submit failed: {exc}") from exc
+    finally:
+        heartbeat_task.cancel()
 
     activity.logger.info("Remote job submitted: adapter=%s run_id=%s", type(adapter).__name__, run_id)
 
     started_at = time.time()
     while True:
+        # status/logs/progress all run subprocess — keep them off the event loop.
         try:
-            status = adapter.status(run_id)
+            status = await loop.run_in_executor(None, lambda: adapter.status(run_id))
         except Exception as exc:
             raise ApplicationError(f"Remote status check failed: {exc}") from exc
 
         elapsed_s = int(time.time() - started_at)
-        logs = adapter.logs(run_id)
+        logs = await loop.run_in_executor(None, lambda: adapter.logs(run_id))
 
         if logs:
             activity.logger.info(
@@ -306,7 +313,7 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
 
         if config.db_run_id:
             try:
-                frac, detail = adapter.progress(run_id)
+                frac, detail = await loop.run_in_executor(None, lambda: adapter.progress(run_id))
                 if frac > 0:
                     _get_run_store().update_progress(config.db_run_id, frac, detail)
             except Exception:
