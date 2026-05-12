@@ -74,6 +74,11 @@ class TrainingModel(TrainingModelConfig):
 
 class RunStatus(str, Enum):
     PENDING = "pending"
+    GENERATING = "generating"
+    TRAINING = "training"
+    EVALUATING = "evaluating"
+    EXPORTING = "exporting"
+    RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -87,6 +92,8 @@ class RunRecord(RunConfig):
     id: str
     status: RunStatus
     eval_valid_pct: float | None = None
+    progress: float | None = None
+    progress_detail: str | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Float, String, select, update
+from sqlalchemy import Float, String, Text, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -22,6 +22,8 @@ class _RunRow(Base):
     workflow_id: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     eval_valid_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    progress: Mapped[float | None] = mapped_column(Float, nullable=True)
+    progress_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False)
     updated_at: Mapped[datetime] = mapped_column(nullable=False)
 
@@ -33,6 +35,8 @@ def _row_to_domain(row: _RunRow) -> RunRecord:
         workflow_id=row.workflow_id,
         status=RunStatus(row.status),
         eval_valid_pct=row.eval_valid_pct,
+        progress=row.progress,
+        progress_detail=row.progress_detail,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -113,6 +117,18 @@ class SQLAlchemyRunStore(RunStorePort):
             if row is None:
                 return None
             row.eval_valid_pct = valid_pct
+            row.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(row)
+            return _row_to_domain(row)
+
+    def update_progress(self, run_id: str, progress: float, detail: str = "") -> RunRecord | None:
+        with Session(self._engine) as db:
+            row = db.get(_RunRow, run_id)
+            if row is None:
+                return None
+            row.progress = progress
+            row.progress_detail = detail
             row.updated_at = datetime.now(timezone.utc)
             db.commit()
             db.refresh(row)

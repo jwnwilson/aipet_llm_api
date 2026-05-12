@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -226,3 +226,115 @@ class TestMakefile:
             capture_output=True, cwd=PROJECT_ROOT, env=env,
         )
         assert result.returncode == 0, result.stderr.decode()
+
+
+# ---------------------------------------------------------------------------
+# trigger_training CLI
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerTrainingCli:
+    """Tests for trigger_training._trigger() — Temporal client and DB are mocked."""
+
+    def _mock_client(self):
+        handle = MagicMock()
+        handle.id = "wf-test-123"
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=handle)
+        return client
+
+    @pytest.mark.asyncio
+    async def test_without_model_id_starts_workflow_with_empty_model_fields(self, monkeypatch, tmp_path):
+        from interactors.cli import trigger_training
+
+        mock_client = self._mock_client()
+        monkeypatch.setattr("temporalio.client.Client.connect", AsyncMock(return_value=mock_client))
+        monkeypatch.chdir(tmp_path)
+
+        await trigger_training._trigger(
+            experiment_name="test-exp",
+            epochs=1, patience=1, warmup_ratio=0.05,
+            skip_generate=False, dry_run=True, remote_backend="",
+            model="HuggingFaceTB/SmolLM2-360M",
+            train_size=10, eval_size=5,
+            model_id=None,
+        )
+
+        mock_client.start_workflow.assert_called_once()
+        config = mock_client.start_workflow.call_args[0][1]
+        assert config.model_id == ""
+        assert config.model_name == ""
+        assert len(config.run_id) == 36  # local UUID
+
+    @pytest.mark.asyncio
+    async def test_with_model_id_creates_run_record_and_passes_model_name(self, monkeypatch, tmp_path):
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from adapters.database import init_db
+        from adapters.database.model_store import SQLAlchemyModelStore
+        from adapters.database.run_store import SQLAlchemyRunStore
+        from domain.models import TrainingModelConfig
+        from interactors.cli import trigger_training
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        init_db(engine)
+        model = SQLAlchemyModelStore(engine).create(TrainingModelConfig(name="my-pet-v2"))
+        run_store = SQLAlchemyRunStore(engine)
+
+        mock_client = self._mock_client()
+        monkeypatch.setattr("temporalio.client.Client.connect", AsyncMock(return_value=mock_client))
+        monkeypatch.setattr("adapters.database.engine.make_engine", lambda: engine)
+        monkeypatch.chdir(tmp_path)
+
+        await trigger_training._trigger(
+            experiment_name="test-exp",
+            epochs=1, patience=1, warmup_ratio=0.05,
+            skip_generate=False, dry_run=True, remote_backend="",
+            model="HuggingFaceTB/SmolLM2-360M",
+            train_size=10, eval_size=5,
+            model_id=model.id,
+        )
+
+        runs = run_store.list(model_id=model.id)
+        assert len(runs) == 1
+        assert runs[0].status.value == "pending"
+
+        config = mock_client.start_workflow.call_args[0][1]
+        assert config.model_id == model.id
+        assert config.model_name == "my-pet-v2"
+        assert config.run_id == runs[0].id
+
+    @pytest.mark.asyncio
+    async def test_with_invalid_model_id_exits_1(self, monkeypatch, tmp_path):
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from adapters.database import init_db
+        from interactors.cli import trigger_training
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        init_db(engine)
+
+        mock_client = self._mock_client()
+        monkeypatch.setattr("temporalio.client.Client.connect", AsyncMock(return_value=mock_client))
+        monkeypatch.setattr("adapters.database.engine.make_engine", lambda: engine)
+
+        with pytest.raises(SystemExit) as exc_info:
+            await trigger_training._trigger(
+                experiment_name="test-exp",
+                epochs=1, patience=1, warmup_ratio=0.05,
+                skip_generate=False, dry_run=True, remote_backend="",
+                model="HuggingFaceTB/SmolLM2-360M",
+                train_size=10, eval_size=5,
+                model_id="nonexistent-model-id",
+            )
+
+        assert exc_info.value.code == 1
+        mock_client.start_workflow.assert_not_called()

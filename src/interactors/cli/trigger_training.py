@@ -20,6 +20,7 @@ async def _trigger(
     model: str,
     train_size: int,
     eval_size: int,
+    model_id: str | None = None,
 ) -> None:
     from pathlib import Path
 
@@ -31,12 +32,36 @@ async def _trigger(
     temporal_host = os.environ.get("TEMPORAL_HOST", "localhost:7233")
     client = await Client.connect(temporal_host)
 
-    run_id = str(uuid.uuid4())
+    model_name = ""
+    if model_id is not None:
+        from adapters.database.engine import make_engine
+        from adapters.database.model_store import SQLAlchemyModelStore
+        from adapters.database.run_store import SQLAlchemyRunStore
+        from domain.models import RunConfig
+
+        engine = make_engine()
+        db_model = SQLAlchemyModelStore(engine).get(model_id)
+        if db_model is None:
+            print(f"ERROR: model '{model_id}' not found in database.", file=sys.stderr)
+            sys.exit(1)
+        model_name = db_model.name
+        workflow_id = f"training-{model_id}-{uuid.uuid4().hex[:8]}"
+        run_record = SQLAlchemyRunStore(engine).create(
+            RunConfig(model_id=model_id, workflow_id=workflow_id)
+        )
+        run_id = run_record.id
+        print(f"RunRecord created: run_id={run_id}")
+    else:
+        run_id = str(uuid.uuid4())
+        workflow_id = f"training-{experiment_name}-{uuid.uuid4().hex[:8]}"
+
     run_data_dir = f"data/workflow/{run_id}"
     Path(run_data_dir).mkdir(parents=True, exist_ok=True)
 
     config = ExperimentConfig(
         experiment_name=experiment_name,
+        model_id=model_id or "",
+        model_name=model_name,
         run_id=run_id,
         epochs=epochs,
         patience=patience,
@@ -52,7 +77,6 @@ async def _trigger(
         gguf_output=f"{run_data_dir}/model.gguf",
     )
 
-    workflow_id = f"training-{experiment_name}-{uuid.uuid4().hex[:8]}"
     handle = await client.start_workflow(
         TrainingPipelineWorkflow.run,
         config,
@@ -65,6 +89,7 @@ async def _trigger(
     print(f"  Run ID     : {run_id}")
     print(f"  Backend    : {remote_backend or 'local'}")
     print(f"  Model      : {model}")
+    print(f"  Model name : {model_name or '(untracked)'}")
     print(f"  Data dir   : {run_data_dir}")
     print(f"  UI         : http://localhost:8233/namespaces/default/workflows/{handle.id}")
 
@@ -102,6 +127,15 @@ def main(argv: list[str] | None = None) -> None:
         default=DEFAULT_MODEL,
         help="Base model to fine-tune (use a larger model with --remote-backend kaggle/ssh)",
     )
+    parser.add_argument(
+        "--model-id",
+        dest="model_id",
+        default=None,
+        help=(
+            "ID of a model record in the training_models table. "
+            "When provided, a RunRecord is created in the database and the run is linked to the model."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -116,6 +150,7 @@ def main(argv: list[str] | None = None) -> None:
             model=args.model,
             train_size=args.train_size,
             eval_size=args.eval_size,
+            model_id=args.model_id,
         ))
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

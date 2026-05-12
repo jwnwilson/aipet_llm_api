@@ -9,6 +9,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
+    from domain.models import RunStatus
     from domain.train.dataset import EVAL_SIZE, SEED, TRAIN_SIZE
     from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
     from interactors.temporal.activities import (
@@ -34,6 +35,7 @@ with workflow.unsafe.imports_passed_through():
 class ExperimentConfig:
     experiment_name: str = ""
     model_id: str = ""
+    model_name: str = ""
     run_id: str = ""
     epochs: int = DEFAULT_EPOCHS
     patience: int = DEFAULT_PATIENCE
@@ -87,6 +89,13 @@ class TrainingPipelineWorkflow:
             )
             workflow.logger.info("skip_generate=True: reusing existing dataset at %s", config.data_dir)
         else:
+            if config.run_id:
+                await workflow.execute_activity(
+                    update_run_status_activity,
+                    args=[config.run_id, RunStatus.GENERATING.value],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=_RETRY,
+                )
             result.dataset_paths = await workflow.execute_activity(
                 generate_dataset_activity,
                 DatasetConfig(
@@ -97,6 +106,14 @@ class TrainingPipelineWorkflow:
                 ),
                 start_to_close_timeout=timedelta(minutes=30),
                 heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=_RETRY,
+            )
+
+        if config.run_id:
+            await workflow.execute_activity(
+                update_run_status_activity,
+                args=[config.run_id, RunStatus.TRAINING.value],
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=_RETRY,
             )
 
@@ -113,11 +130,20 @@ class TrainingPipelineWorkflow:
                 dry_run=config.dry_run,
                 remote_backend=config.remote_backend,
                 experiment_name=config.experiment_name,
+                db_run_id=config.run_id,
             ),
             start_to_close_timeout=timedelta(hours=6),
             heartbeat_timeout=timedelta(minutes=2),
             retry_policy=_NO_RETRY,
         )
+
+        if config.run_id:
+            await workflow.execute_activity(
+                update_run_status_activity,
+                args=[config.run_id, RunStatus.EVALUATING.value],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=_RETRY,
+            )
 
         result.eval_result = await workflow.execute_activity(
             evaluate_activity,
@@ -127,6 +153,7 @@ class TrainingPipelineWorkflow:
                 run_id=result.checkpoint.run_id,
                 remote_backend=result.checkpoint.remote_backend,
                 output_dir=config.output_dir,
+                db_run_id=config.run_id,
             ),
             start_to_close_timeout=timedelta(minutes=30),
             heartbeat_timeout=timedelta(minutes=2),
@@ -136,6 +163,14 @@ class TrainingPipelineWorkflow:
         result.passed = result.eval_result.passed
 
         if result.eval_result.passed:
+            if config.run_id:
+                await workflow.execute_activity(
+                    update_run_status_activity,
+                    args=[config.run_id, RunStatus.EXPORTING.value],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=_RETRY,
+                )
+
             result.gguf_path = await workflow.execute_activity(
                 export_activity,
                 ExportConfig(
@@ -145,6 +180,7 @@ class TrainingPipelineWorkflow:
                     remote_backend=result.checkpoint.remote_backend,
                     model_id=config.model_id,
                     pipeline_run_id=config.run_id,
+                    model_name=config.model_name,
                 ),
                 start_to_close_timeout=timedelta(hours=1),
                 heartbeat_timeout=timedelta(minutes=2),

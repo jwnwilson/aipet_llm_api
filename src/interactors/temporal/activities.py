@@ -92,6 +92,7 @@ class TrainConfig:
     # Remote backend: "" or "local" → run locally; "kaggle" or "ssh" → remote.
     remote_backend: str = ""
     experiment_name: str = ""
+    db_run_id: str = ""  # DB RunRecord.id for progress updates; "" = no tracking
 
 
 @dataclass
@@ -108,6 +109,7 @@ class EvalConfig:
     run_id: str = ""          # non-empty → run eval on the remote machine
     remote_backend: str = ""
     output_dir: str = ""      # local download dest when falling back from remote to local eval
+    db_run_id: str = ""       # DB RunRecord.id for progress updates; "" = no tracking
 
 
 @dataclass
@@ -124,6 +126,7 @@ class ExportConfig:
     remote_backend: str = ""
     model_id: str = ""         # fallback storage key when pipeline_run_id is unset
     pipeline_run_id: str = ""  # pipeline UUID; drives storage key workflow/{id}/model.gguf
+    model_name: str = ""       # human-readable name; drives gguf/{model_name}.gguf key
 
 
 @dataclass
@@ -140,6 +143,29 @@ async def _heartbeat_loop(stage: str, interval: int = 30) -> None:
     """Send a liveness heartbeat every `interval` seconds while a blocking call runs."""
     while True:
         activity.heartbeat({"stage": stage})
+        await asyncio.sleep(interval)
+
+
+async def _poll_local_progress(db_run_id: str, output_dir: str, interval: int = 30) -> None:
+    """Heartbeat loop for local training: also polls progress.json and persists it."""
+    import json as _json
+    progress_path = Path(output_dir) / "progress.json"
+    while True:
+        activity.heartbeat({"stage": "train_local"})
+        if db_run_id:
+            try:
+                data = _json.loads(progress_path.read_text())
+                step = data.get("step", 0)
+                max_steps = data.get("max_steps", 1)
+                frac = step / max_steps if max_steps else 0.0
+                epoch = data.get("epoch", "?")
+                parts = [f"epoch={epoch}"]
+                for key in ("loss", "eval_loss"):
+                    if key in data:
+                        parts.append(f"{key}={data[key]:.4f}")
+                _get_run_store().update_progress(db_run_id, frac, "  ".join(parts))
+            except Exception:
+                pass
         await asyncio.sleep(interval)
 
 
@@ -201,7 +227,9 @@ async def _train_local(config: TrainConfig) -> CheckpointPath:
     from domain.train.trainer import train
 
     loop = asyncio.get_event_loop()
-    heartbeat_task = asyncio.ensure_future(_heartbeat_loop("train_local"))
+    heartbeat_task = asyncio.ensure_future(
+        _poll_local_progress(config.db_run_id, config.output_dir)
+    )
     try:
         await loop.run_in_executor(
             None,
@@ -266,6 +294,14 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
             )
 
         activity.heartbeat({"status": status, "elapsed_s": elapsed_s, "logs": logs})
+
+        if config.db_run_id:
+            try:
+                frac, detail = adapter.progress(run_id)
+                if frac > 0:
+                    _get_run_store().update_progress(config.db_run_id, frac, detail)
+            except Exception:
+                pass
 
         if status == "done":
             # Defer download — eval may run on the remote, so we avoid pulling
@@ -407,7 +443,9 @@ async def export_activity(config: ExportConfig) -> GGUFPath:
 
         # Upload to storage so the API can retrieve it by key.
         storage = _get_storage()
-        if config.pipeline_run_id:
+        if config.model_name:
+            key = f"gguf/{config.model_name}.gguf"
+        elif config.pipeline_run_id:
             key = f"workflow/{config.pipeline_run_id}/model.gguf"
         elif config.model_id:
             key = f"gguf/{config.model_id}.gguf"

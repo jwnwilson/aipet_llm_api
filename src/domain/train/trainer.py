@@ -496,9 +496,11 @@ def train(
         padding=True, pad_to_multiple_of=8, label_pad_token_id=-100,
     )
 
-    callbacks = [_ActionQualityCallback(eval_records, tokenizer, n_sample=20)]
-    if progress_path:
-        callbacks.append(_ProgressCallback(Path(progress_path)))
+    effective_progress_path = progress_path or str(Path(output_dir) / "progress.json")
+    callbacks = [
+        _ActionQualityCallback(eval_records, tokenizer, n_sample=20),
+        _ProgressCallback(Path(effective_progress_path)),
+    ]
     if not dry_run:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience))
 

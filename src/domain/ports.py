@@ -103,6 +103,14 @@ class RemoteTrainingPort(ABC):
         """Return recent log output for the running job (best-effort, may be empty)."""
         return ""
 
+    def progress(self, run_id: str) -> tuple[float, str]:  # noqa: ARG002
+        """Return (completion_fraction 0.0–1.0, detail_string) for the running job.
+
+        Override in adapters that can report structured progress.  The fraction is
+        relative to the current stage (e.g. step/max_steps during training).
+        """
+        return 0.0, ""
+
     def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:  # noqa: ARG002
         """Run evaluation on the remote machine and return ``(valid_pct, passed)``.
 
@@ -166,3 +174,7 @@ class RunStorePort(StorePort["RunRecord", "RunConfig"]):
     @abstractmethod
     def update_eval(self, run_id: str, valid_pct: float) -> RunRecord | None:
         """Persist the eval result; return updated record or None if not found."""
+
+    @abstractmethod
+    def update_progress(self, run_id: str, progress: float, detail: str = "") -> RunRecord | None:
+        """Persist training/evaluation progress fraction and detail string."""

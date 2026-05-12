@@ -46,6 +46,11 @@ class TestCreate:
         run = store.create(_config())
         assert run.eval_valid_pct is None
 
+    def test_progress_fields_are_none_initially(self, store):
+        run = store.create(_config())
+        assert run.progress is None
+        assert run.progress_detail is None
+
     def test_sets_timestamps(self, store):
         run = store.create(_config())
         assert run.created_at is not None
@@ -109,6 +114,13 @@ class TestUpdateStatus:
         assert updated is not None
         assert updated.status == RunStatus.FAILED
 
+    def test_changes_status_to_intermediate_values(self, store):
+        run = store.create(_config())
+        for status in (RunStatus.GENERATING, RunStatus.TRAINING, RunStatus.EVALUATING, RunStatus.EXPORTING):
+            updated = store.update_status(run.id, status)
+            assert updated is not None
+            assert updated.status == status
+
     def test_updates_updated_at(self, store):
         run = store.create(_config())
         original_ts = run.updated_at
@@ -118,6 +130,40 @@ class TestUpdateStatus:
 
     def test_returns_none_for_unknown_id(self, store):
         assert store.update_status("no-such-id", RunStatus.COMPLETED) is None
+
+
+class TestUpdateProgress:
+    def test_sets_progress_and_detail(self, store):
+        run = store.create(_config())
+        updated = store.update_progress(run.id, 0.5, "epoch=2.0  loss=0.4312")
+        assert updated is not None
+        assert abs(updated.progress - 0.5) < 1e-6
+        assert updated.progress_detail == "epoch=2.0  loss=0.4312"
+
+    def test_sets_progress_without_detail(self, store):
+        run = store.create(_config())
+        updated = store.update_progress(run.id, 0.75)
+        assert updated is not None
+        assert abs(updated.progress - 0.75) < 1e-6
+        assert updated.progress_detail == ""
+
+    def test_updates_updated_at(self, store):
+        run = store.create(_config())
+        original_ts = run.updated_at
+        time.sleep(0.01)
+        updated = store.update_progress(run.id, 0.3, "epoch=1.5")
+        assert updated.updated_at > original_ts
+
+    def test_returns_none_for_unknown_id(self, store):
+        assert store.update_progress("no-such-id", 0.5) is None
+
+    def test_persists_across_get(self, store):
+        run = store.create(_config())
+        store.update_progress(run.id, 0.6, "epoch=3.0")
+        fetched = store.get(run.id)
+        assert fetched is not None
+        assert abs(fetched.progress - 0.6) < 1e-6
+        assert fetched.progress_detail == "epoch=3.0"
 
 
 class TestUpdateEval:

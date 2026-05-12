@@ -799,3 +799,145 @@ class TestColabNotebookTemplate:
 
     def test_template_marks_failed_on_training_error(self, template):
         assert "update_status('failed')" in self._all_source(template)
+
+
+# ---------------------------------------------------------------------------
+# SshTrainingAdapter.progress()
+# ---------------------------------------------------------------------------
+
+
+class TestSshAdapterProgress:
+    def _make_adapter(self, monkeypatch):
+        monkeypatch.setenv("REMOTE_HOST", "gpu.example.com")
+        monkeypatch.setenv("REMOTE_USER", "ubuntu")
+        monkeypatch.setenv("REMOTE_KEY_PATH", "")
+        monkeypatch.setenv("REMOTE_WORK_DIR", "/app")
+        from adapters.compute.ssh import SshTrainingAdapter
+        return SshTrainingAdapter()
+
+    def test_returns_zero_when_no_progress_file(self, monkeypatch):
+        adapter = self._make_adapter(monkeypatch)
+        monkeypatch.setattr("adapters.compute.ssh.subprocess.run", lambda *a, **kw: _ok(""))
+        frac, detail = adapter.progress("aipet-exp")
+        assert frac == 0.0
+        assert detail == ""
+
+    def test_parses_step_and_max_steps_into_fraction(self, monkeypatch):
+        adapter = self._make_adapter(monkeypatch)
+        data = {"step": 50, "max_steps": 100, "epoch": 1.0, "loss": 0.4312}
+        monkeypatch.setattr(
+            "adapters.compute.ssh.subprocess.run",
+            lambda *a, **kw: _ok(json.dumps(data)),
+        )
+        frac, detail = adapter.progress("aipet-exp")
+        assert abs(frac - 0.5) < 1e-6
+        assert "epoch=1.0" in detail
+        assert "loss=0.4312" in detail
+
+    def test_detail_includes_eval_loss_when_present(self, monkeypatch):
+        adapter = self._make_adapter(monkeypatch)
+        data = {"step": 80, "max_steps": 100, "epoch": 1.6, "eval_loss": 0.3210}
+        monkeypatch.setattr(
+            "adapters.compute.ssh.subprocess.run",
+            lambda *a, **kw: _ok(json.dumps(data)),
+        )
+        _, detail = adapter.progress("aipet-exp")
+        assert "eval_loss=0.3210" in detail
+
+    def test_returns_zero_on_invalid_json(self, monkeypatch):
+        adapter = self._make_adapter(monkeypatch)
+        monkeypatch.setattr("adapters.compute.ssh.subprocess.run", lambda *a, **kw: _ok("not-json"))
+        frac, detail = adapter.progress("aipet-exp")
+        assert frac == 0.0
+        assert detail == ""
+
+    def test_reads_checkpoints_progress_json_via_ssh(self, monkeypatch):
+        adapter = self._make_adapter(monkeypatch)
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kw):
+            calls.append(list(cmd))
+            return _ok("")
+
+        monkeypatch.setattr("adapters.compute.ssh.subprocess.run", fake_run)
+        adapter.progress("aipet-exp")
+        cmd_str = " ".join(c for cmd in calls for c in cmd)
+        assert "progress.json" in cmd_str
+        assert "checkpoints" in cmd_str
+
+
+# ---------------------------------------------------------------------------
+# KaggleTrainingAdapter.progress()
+# ---------------------------------------------------------------------------
+
+
+class TestKaggleAdapterProgress:
+    def _make_adapter(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("KAGGLE_USERNAME", "testuser")
+        monkeypatch.setattr("adapters.compute.kaggle.adapter._kaggle_bin", lambda: "kaggle")
+        from adapters.compute.kaggle import KaggleTrainingAdapter
+        return KaggleTrainingAdapter(work_dir=tmp_path)
+
+    def test_returns_zero_when_no_progress_file(self, monkeypatch, tmp_path):
+        adapter = self._make_adapter(monkeypatch, tmp_path)
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", lambda *a, **kw: _ok())
+        frac, detail = adapter.progress("testuser/exp")
+        assert frac == 0.0
+        assert detail == ""
+
+    def test_returns_fraction_from_step_and_max_steps(self, monkeypatch, tmp_path):
+        adapter = self._make_adapter(monkeypatch, tmp_path)
+        progress_data = {"step": 50, "max_steps": 100, "epoch": 1.0}
+
+        def fake_run(cmd, **kw):
+            if "output" in cmd:
+                p_idx = list(cmd).index("-p") + 1
+                out_dir = Path(cmd[p_idx])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "progress.json").write_text(json.dumps(progress_data))
+            return _ok()
+
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", fake_run)
+        frac, detail = adapter.progress("testuser/exp")
+        assert abs(frac - 0.5) < 1e-6
+        assert "epoch=1.0" in detail
+
+    def test_detail_includes_loss_metrics(self, monkeypatch, tmp_path):
+        adapter = self._make_adapter(monkeypatch, tmp_path)
+        progress_data = {
+            "step": 75, "max_steps": 100, "epoch": 1.5,
+            "loss": 0.3456, "eval_loss": 0.4567,
+        }
+
+        def fake_run(cmd, **kw):
+            if "output" in cmd:
+                p_idx = list(cmd).index("-p") + 1
+                out_dir = Path(cmd[p_idx])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "progress.json").write_text(json.dumps(progress_data))
+            return _ok()
+
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", fake_run)
+        frac, detail = adapter.progress("testuser/exp")
+        assert abs(frac - 0.75) < 1e-6
+        assert "epoch=1.5" in detail
+        assert "loss=0.3456" in detail
+        assert "eval_loss=0.4567" in detail
+
+    def test_logs_delegates_to_progress_when_detail_available(self, monkeypatch, tmp_path):
+        """logs() should return the structured detail string from progress() when available."""
+        adapter = self._make_adapter(monkeypatch, tmp_path)
+        progress_data = {"step": 30, "max_steps": 100, "epoch": 0.6, "loss": 0.5555}
+
+        def fake_run(cmd, **kw):
+            if "output" in cmd:
+                p_idx = list(cmd).index("-p") + 1
+                out_dir = Path(cmd[p_idx])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "progress.json").write_text(json.dumps(progress_data))
+            return _ok()
+
+        monkeypatch.setattr("adapters.compute.kaggle.adapter.subprocess.run", fake_run)
+        result = adapter.logs("testuser/exp")
+        assert "epoch=0.6" in result
+        assert "loss=0.5555" in result

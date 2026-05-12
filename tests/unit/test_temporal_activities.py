@@ -189,6 +189,52 @@ async def test_evaluate_remote_kaggle_fallback_passes_inner_checkpoint_to_local(
 
 
 @pytest.mark.asyncio
+async def test_export_activity_uses_model_name_for_storage_key():
+    from unittest.mock import MagicMock
+    from adapters.storage.local import LocalStorageAdapter
+
+    storage = MagicMock(spec=LocalStorageAdapter)
+    configure_storage(storage)
+
+    with patch("domain.train.export.export"):
+        result = await ENV.run(
+            export_activity,
+            ExportConfig(
+                checkpoint_path="models/checkpoints",
+                gguf_output="data/workflow/r1/model.gguf",
+                model_name="my-pet-v2",
+                pipeline_run_id="r1",
+                model_id="model-uuid",
+            ),
+        )
+
+    assert result.path == "gguf/my-pet-v2.gguf"
+
+
+@pytest.mark.asyncio
+async def test_export_activity_model_name_takes_precedence_over_pipeline_run_id():
+    from unittest.mock import MagicMock
+    from adapters.storage.local import LocalStorageAdapter
+
+    storage = MagicMock(spec=LocalStorageAdapter)
+    configure_storage(storage)
+
+    with patch("domain.train.export.export"):
+        result = await ENV.run(
+            export_activity,
+            ExportConfig(
+                checkpoint_path="models/checkpoints",
+                gguf_output="data/workflow/r1/model.gguf",
+                model_name="my-pet-v2",
+                pipeline_run_id="r1",
+            ),
+        )
+
+    assert result.path == "gguf/my-pet-v2.gguf"
+    assert "r1" not in result.path
+
+
+@pytest.mark.asyncio
 async def test_export_activity_uses_pipeline_run_id_for_storage_key():
     from unittest.mock import MagicMock
     from adapters.storage.local import LocalStorageAdapter
@@ -354,3 +400,169 @@ class TestTrainRemotePolling:
 def test_parse_valid_pct_handles_multiline_output():
     output = "Loading model...\nValid: 180/200 (90.0%)  [FAIL]\nAction distribution:"
     assert abs(_parse_valid_pct(output) - 0.90) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# _train_remote progress tracking
+# ---------------------------------------------------------------------------
+
+
+class TestTrainRemoteProgress:
+    """Verify _train_remote calls adapter.progress() and persists it when db_run_id is set."""
+
+    def _make_adapter(self, statuses, progress_return=(0.0, ""), download_path="/tmp/ckpt"):
+        adapter = MagicMock()
+        adapter.submit.return_value = "run-42"
+        adapter.status.side_effect = list(statuses)
+        adapter.logs.return_value = ""
+        adapter.progress.return_value = progress_return
+        adapter.download.return_value = download_path
+        return adapter
+
+    @pytest.mark.asyncio
+    async def test_calls_adapter_progress_and_persists_when_db_run_id_set(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+
+        adapter = self._make_adapter(["done"], progress_return=(0.5, "epoch=1.0  loss=0.4312"))
+        config = TrainConfig(db_run_id="run-db-1", experiment_name="test", output_dir="/tmp/out")
+        with patch("interactors.temporal.activities.asyncio.sleep"):
+            await acts._train_remote(config, adapter)
+
+        adapter.progress.assert_called()
+        mock_store.update_progress.assert_called_with("run-db-1", 0.5, "epoch=1.0  loss=0.4312")
+
+    @pytest.mark.asyncio
+    async def test_skips_update_when_fraction_is_zero(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+
+        adapter = self._make_adapter(["done"], progress_return=(0.0, ""))
+        config = TrainConfig(db_run_id="run-db-1", experiment_name="test", output_dir="/tmp/out")
+        with patch("interactors.temporal.activities.asyncio.sleep"):
+            await acts._train_remote(config, adapter)
+
+        adapter.progress.assert_called()
+        mock_store.update_progress.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_progress_entirely_when_no_db_run_id(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+
+        adapter = self._make_adapter(["done"], progress_return=(0.75, "epoch=2.0"))
+        config = TrainConfig(db_run_id="", experiment_name="test", output_dir="/tmp/out")
+        with patch("interactors.temporal.activities.asyncio.sleep"):
+            await acts._train_remote(config, adapter)
+
+        adapter.progress.assert_not_called()
+        mock_store.update_progress.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_progress_errors_do_not_fail_the_activity(self, monkeypatch):
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        mock_store.update_progress.side_effect = RuntimeError("DB gone")
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+
+        adapter = self._make_adapter(["done"], progress_return=(0.5, "epoch=1.0"))
+        config = TrainConfig(db_run_id="run-db-1", experiment_name="test", output_dir="/tmp/out")
+        with patch("interactors.temporal.activities.asyncio.sleep"):
+            result = await acts._train_remote(config, adapter)
+
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# _poll_local_progress
+# ---------------------------------------------------------------------------
+
+
+class TestPollLocalProgress:
+    """Verify _poll_local_progress reads progress.json and calls update_progress."""
+
+    @pytest.mark.asyncio
+    async def test_reads_progress_json_and_calls_update_progress(self, monkeypatch, tmp_path):
+        import asyncio
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+
+        (tmp_path / "progress.json").write_text(
+            '{"step": 50, "max_steps": 100, "epoch": 1.0, "loss": 0.4312}'
+        )
+
+        with patch("interactors.temporal.activities.asyncio.sleep", side_effect=asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
+                await acts._poll_local_progress("run-42", str(tmp_path))
+
+        mock_store.update_progress.assert_called_once_with("run-42", 0.5, "epoch=1.0  loss=0.4312")
+
+    @pytest.mark.asyncio
+    async def test_includes_eval_loss_in_detail(self, monkeypatch, tmp_path):
+        import asyncio
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+
+        (tmp_path / "progress.json").write_text(
+            '{"step": 75, "max_steps": 100, "epoch": 1.5, "eval_loss": 0.3210}'
+        )
+
+        with patch("interactors.temporal.activities.asyncio.sleep", side_effect=asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
+                await acts._poll_local_progress("run-42", str(tmp_path))
+
+        call_args = mock_store.update_progress.call_args
+        assert "eval_loss=0.3210" in call_args[0][2]
+
+    @pytest.mark.asyncio
+    async def test_skips_update_when_db_run_id_is_empty(self, monkeypatch, tmp_path):
+        import asyncio
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+
+        (tmp_path / "progress.json").write_text('{"step": 50, "max_steps": 100, "epoch": 1.0}')
+
+        with patch("interactors.temporal.activities.asyncio.sleep", side_effect=asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
+                await acts._poll_local_progress("", str(tmp_path))
+
+        mock_store.update_progress.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handles_missing_progress_file_gracefully(self, monkeypatch, tmp_path):
+        import asyncio
+        import interactors.temporal.activities as acts
+
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+
+        with patch("interactors.temporal.activities.asyncio.sleep", side_effect=asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
+                await acts._poll_local_progress("run-42", str(tmp_path))
+
+        mock_store.update_progress.assert_not_called()

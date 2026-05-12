@@ -179,6 +179,7 @@ async def trigger_run(
         config = ExperimentConfig(
             experiment_name=model.name,
             model_id=model.id,
+            model_name=model.name,
             run_id=run_id,
             epochs=model.epochs,
             patience=model.patience,

@@ -111,6 +111,31 @@ class SshTrainingAdapter(RemoteTrainingPort):
         )
         return result.stdout.strip()
 
+    def progress(self, run_id: str) -> tuple[float, str]:  # noqa: ARG002
+        import json
+        result = subprocess.run(
+            self._ssh_args() + [
+                f"cat {self._work_dir}/models/checkpoints/progress.json 2>/dev/null"
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if not result.stdout.strip():
+            return 0.0, ""
+        try:
+            data = json.loads(result.stdout)
+            step = data.get("step", 0)
+            max_steps = data.get("max_steps", 1)
+            fraction = step / max_steps if max_steps else 0.0
+            epoch = data.get("epoch", "?")
+            parts = [f"epoch={epoch}"]
+            for key in ("loss", "eval_loss"):
+                if key in data:
+                    parts.append(f"{key}={data[key]:.4f}")
+            return fraction, "  ".join(parts)
+        except Exception:
+            return 0.0, ""
+
     def download(self, run_id: str, dest: Path) -> str:
         dest.mkdir(parents=True, exist_ok=True)
         remote = f"{self._user}@{self._host}"

@@ -112,13 +112,21 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         return "pending"
 
     def logs(self, run_id: str) -> str:
-        """Return a progress string from the training sidecar file if available.
+        frac, detail = self.progress(run_id)
+        if detail:
+            return detail
+        result = subprocess.run(
+            [_kaggle_bin(), "kernels", "status", run_id],
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
 
-        The training notebook writes /kaggle/working/progress.json after each
-        HF Trainer log step. We try to fetch it via ``kaggle kernels output``
-        with a short timeout; whether Kaggle exposes working-dir files during
-        execution depends on their API version. On failure we fall back to the
-        plain kernel status line.
+    def progress(self, run_id: str) -> tuple[float, str]:
+        """Return (completion_fraction, detail_string) from the training progress.json sidecar.
+
+        The training notebook writes /kaggle/working/progress.json after each HF Trainer
+        log step.  Falls back to (0.0, "") if the file is unavailable.
         """
         try:
             import tempfile
@@ -133,24 +141,19 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
                 matches = list(Path(tmpdir).glob("**/progress.json"))
                 if matches:
                     data = json.loads(matches[0].read_text())
-                    step = data.get("step", "?")
-                    max_steps = data.get("max_steps", "?")
+                    step = data.get("step", 0)
+                    max_steps = data.get("max_steps", 1)
+                    fraction = step / max_steps if max_steps else 0.0
                     epoch = data.get("epoch", "?")
                     elapsed = data.get("elapsed_s", "?")
                     parts = [f"step={step}/{max_steps}", f"epoch={epoch}", f"elapsed={elapsed}s"]
                     for key in ("loss", "eval_loss", "grad_norm"):
                         if key in data:
                             parts.append(f"{key}={data[key]:.4f}")
-                    return "  ".join(parts)
+                    return fraction, "  ".join(parts)
         except Exception:
             pass
-
-        result = subprocess.run(
-            [_kaggle_bin(), "kernels", "status", run_id],
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout.strip()
+        return 0.0, ""
 
     def download(self, run_id: str, dest: Path) -> str:
         dest.mkdir(parents=True, exist_ok=True)

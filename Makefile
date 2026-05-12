@@ -86,7 +86,7 @@ setup-llama: ## Clone and build llama.cpp (required for make export)
 		git clone https://github.com/ggerganov/llama.cpp.git llama.cpp; \
 	fi
 	cmake -B llama.cpp/build llama.cpp
-	cmake --build llama.cpp/build --config Release -j
+	cmake --build llama.cpp/build --target llama-quantize --config Release -j$(sysctl -n hw.logicalcpu)
 	@echo "\nllama.cpp ready — run 'make export' to convert your checkpoint."
 
 export: ## Convert HF checkpoint → GGUF Q4_K_M  → models/aipet.gguf
