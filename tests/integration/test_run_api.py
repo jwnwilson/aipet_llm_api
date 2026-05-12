@@ -107,6 +107,25 @@ class TestTriggerRun:
         resp = await c.post("/api/runs/trigger", json={"model_id": "no-such-model"})
         assert resp.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_trigger_passes_model_config_to_workflow(self, client_with_model):
+        c, model, run_store = client_with_model
+        connect_mock, mock_wf_client = self._connect_mock()
+
+        with (
+            patch("temporalio.client.Client.connect", connect_mock),
+            patch("pathlib.Path.mkdir"),
+        ):
+            resp = await c.post("/api/runs/trigger", json={"model_id": model.id})
+
+        assert resp.status_code == 202
+        # ExperimentConfig is the second positional arg to start_workflow
+        config = mock_wf_client.start_workflow.call_args[0][1]
+        assert config.model_id == model.id
+        assert config.model == model.base_model
+        assert config.epochs == model.epochs
+        assert config.skip_generate == model.skip_generate
+
 
 class TestListRuns:
     @pytest.mark.asyncio
