@@ -25,9 +25,8 @@ dependencies = [
     "peft>=0.9.0",
     "sentencepiece>=0.2.0",
     "kaggle>=1.6",
-    "google-auth>=2.0",
-    "google-api-python-client>=2.0",
-    "google-auth-httplib2>=0.2",
+    "boto3>=1.35",
+    "runpod>=1.7",
     "sqlalchemy>=2.0.49",
     "alembic>=1.18.4",
 ]

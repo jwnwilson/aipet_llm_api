@@ -45,14 +45,16 @@ try:
 except ModuleNotFoundError:
     _PEFT_AVAILABLE = False
 
-MAX_LENGTH = 512
-DEFAULT_MODEL = "HuggingFaceTB/SmolLM2-360M"
-DEFAULT_TRAIN_DATA = "data/train.jsonl"
-DEFAULT_EVAL_DATA = "data/eval.jsonl"
-DEFAULT_OUTPUT_DIR = "models/checkpoints"
-DEFAULT_EPOCHS = 5
-DEFAULT_PATIENCE = 3
-DEFAULT_WARMUP_RATIO = 0.05
+from domain.train.config import (
+    DEFAULT_EPOCHS,
+    DEFAULT_EVAL_DATA,
+    DEFAULT_MODEL,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PATIENCE,
+    DEFAULT_TRAIN_DATA,
+    DEFAULT_WARMUP_RATIO,
+    MAX_LENGTH,
+)
 
 
 def _strip_bnb_config(config_file: Path) -> None:

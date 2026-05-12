@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -20,3 +21,12 @@ def llama_cpp_ready() -> Path:
             f"Expected: {convert} and {quantize}"
         )
     return _LLAMA_CPP_DIR
+
+
+@pytest.fixture(scope="session")
+def kaggle_credentials() -> None:
+    """Skip the test if Kaggle credentials are not configured in the environment."""
+    if not os.environ.get("KAGGLE_USERNAME") or not os.environ.get("KAGGLE_KEY"):
+        pytest.skip(
+            "Kaggle credentials not set — export KAGGLE_USERNAME and KAGGLE_KEY to run this test"
+        )

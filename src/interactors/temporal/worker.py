@@ -36,13 +36,18 @@ async def main() -> None:
     from adapters.database import init_db, make_engine
     from adapters.database.model_store import SQLAlchemyModelStore
     from adapters.database.run_store import SQLAlchemyRunStore
-    from adapters.storage import LocalStorageAdapter
 
     engine = make_engine()
     init_db(engine)
     configure_model_store(SQLAlchemyModelStore(engine))
     configure_run_store(SQLAlchemyRunStore(engine))
-    configure_storage(LocalStorageAdapter())
+
+    if os.getenv("AWS_S3_BUCKET"):
+        from adapters.storage.s3 import S3StorageAdapter
+        configure_storage(S3StorageAdapter())
+    else:
+        from adapters.storage.local import LocalStorageAdapter
+        configure_storage(LocalStorageAdapter())
 
     temporal_host = os.environ.get("TEMPORAL_HOST", "localhost:7233")
     client = await Client.connect(temporal_host)

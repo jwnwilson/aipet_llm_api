@@ -11,7 +11,7 @@ from temporalio.common import RetryPolicy
 with workflow.unsafe.imports_passed_through():
     from domain.models import RunStatus
     from domain.train.dataset import EVAL_SIZE, SEED, TRAIN_SIZE
-    from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
+    from domain.train.config import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
     from interactors.temporal.activities import (
         CheckpointPath,
         DatasetConfig,

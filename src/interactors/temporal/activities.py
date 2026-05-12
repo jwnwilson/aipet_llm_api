@@ -15,7 +15,7 @@ from temporalio.exceptions import ApplicationError
 
 from domain.ports import ModelStorePort, RemoteTrainingPort, RunStorePort, StoragePort
 from domain.train.dataset import EVAL_SIZE, SEED, TRAIN_SIZE
-from domain.train.trainer import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
+from domain.train.config import DEFAULT_EPOCHS, DEFAULT_MODEL, DEFAULT_OUTPUT_DIR, DEFAULT_PATIENCE, DEFAULT_WARMUP_RATIO
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +211,9 @@ def _make_remote_adapter(backend: str) -> RemoteTrainingPort:
     if backend == "colab":
         from adapters.compute.colab.adapter import ColabTrainingAdapter
         return ColabTrainingAdapter()
+    if backend == "runpod":
+        from adapters.compute.runpod import RunPodTrainingAdapter
+        return RunPodTrainingAdapter()
     raise ApplicationError(f"Unknown remote_backend: {backend!r}")
 
 

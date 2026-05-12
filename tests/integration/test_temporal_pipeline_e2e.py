@@ -264,7 +264,6 @@ async def test_local_pipeline_standard_lora_e2e(tmp_path: Path, llama_cpp_ready:
 
 
 @pytest.mark.slow
-@pytest.mark.gpu
 @pytest.mark.asyncio
 async def test_local_pipeline_qlora_e2e(tmp_path: Path, llama_cpp_ready: Path) -> None:
     """Full Temporal pipeline with QLoRA (force_qlora=True).
@@ -285,10 +284,6 @@ async def test_local_pipeline_qlora_e2e(tmp_path: Path, llama_cpp_ready: Path) -
     except ImportError:
         pytest.skip("torch not installed — cannot determine CUDA availability")
 
-    if not torch.cuda.is_available():
-        pytest.skip("QLoRA requires CUDA — skipping on non-GPU machine")
-
-    breakpoint()
     log.info("=== test_local_pipeline_qlora_e2e START ===")
     result, eval_captures = await _run_pipeline(
         tmp_path=tmp_path,
