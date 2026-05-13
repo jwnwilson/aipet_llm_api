@@ -15,7 +15,7 @@ from domain.ports import ModelStorePort, RunStorePort
 from interactors.api.auth import require_auth
 from interactors.api.deps import get_model_store, get_run_store
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/runs",
@@ -121,7 +121,7 @@ async def trigger_run(
             task_queue=TASK_QUEUE,
         )
 
-        logger.info(
+        log.info(
             "Training triggered: model=%s run_id=%s workflow_id=%s",
             body.model_id, run_id, workflow_id,
         )
@@ -129,7 +129,7 @@ async def trigger_run(
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Failed to trigger training workflow for model %s", body.model_id)
+        log.exception("Failed to trigger training workflow for model %s", body.model_id)
         raise HTTPException(status_code=500, detail="Failed to start training workflow")
 
 
@@ -165,7 +165,7 @@ def activate_run(
         raise HTTPException(status_code=500, detail=f"Failed to load run model from storage: {exc}") from exc
 
     configure(LlamaCppInferenceAdapter(model_path=str(local_path)))
-    logger.info("Activated run %s — gguf=%s", run_id, local_path)
+    log.info("Activated run %s — gguf=%s", run_id, local_path)
     return run
 
 
@@ -212,12 +212,12 @@ async def evaluate_run(
             task_queue=TASK_QUEUE,
         )
 
-        logger.info("Eval workflow started: run_id=%s workflow_id=%s", run_id, workflow_id)
+        log.info("Eval workflow started: run_id=%s workflow_id=%s", run_id, workflow_id)
         return {"run_id": run_id, "workflow_id": workflow_id}
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Failed to start evaluate workflow for run %s", run_id)
+        log.exception("Failed to start evaluate workflow for run %s", run_id)
         raise HTTPException(status_code=500, detail="Failed to start evaluation workflow")
 
 
@@ -264,10 +264,10 @@ async def export_run(
             task_queue=TASK_QUEUE,
         )
 
-        logger.info("Export workflow started: run_id=%s workflow_id=%s", run_id, workflow_id)
+        log.info("Export workflow started: run_id=%s workflow_id=%s", run_id, workflow_id)
         return {"run_id": run_id, "workflow_id": workflow_id}
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Failed to start export workflow for run %s", run_id)
+        log.exception("Failed to start export workflow for run %s", run_id)
         raise HTTPException(status_code=500, detail="Failed to start export workflow")

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 _SETUP_TEMPLATE = """\
 llama.cpp not found at {llama_cpp_dir}.
@@ -23,17 +26,14 @@ def _check_llama_cpp(llama_cpp_dir: Path) -> None:
     quantize_bin = llama_cpp_dir / "build" / "bin" / "llama-quantize"
     missing = [p for p in (convert_script, quantize_bin) if not p.exists()]
     if missing:
-        print("ERROR: missing llama.cpp files:", file=sys.stderr)
-        for p in missing:
-            print(f"  {p}", file=sys.stderr)
-        print(file=sys.stderr)
-        print(
+        log.error(
+            "missing llama.cpp files: %s\n%s",
+            ", ".join(str(p) for p in missing),
             _SETUP_TEMPLATE.format(
                 llama_cpp_dir=llama_cpp_dir,
                 convert_script=convert_script,
                 quantize_bin=quantize_bin,
             ),
-            file=sys.stderr,
         )
         sys.exit(1)
 
@@ -94,7 +94,7 @@ def _strip_bnb_quantization(checkpoint: Path) -> None:
             import bitsandbytes.nn as bnb_nn
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            print("  Checkpoint has bitsandbytes tensors — reloading in float16 (CUDA) …")
+            log.info("Checkpoint has bitsandbytes tensors — reloading in float16 (CUDA) …")
             model = AutoModelForCausalLM.from_pretrained(
                 str(checkpoint), device_map="auto", trust_remote_code=True
             )
@@ -116,16 +116,14 @@ def _strip_bnb_quantization(checkpoint: Path) -> None:
                 f.unlink()
             model.save_pretrained(checkpoint)
             tokenizer.save_pretrained(checkpoint)
-            print("  Checkpoint resaved as float16.")
+            log.info("Checkpoint resaved as float16.")
 
         except RuntimeError as exc:
             if "no CUDA" in str(exc) or "CUDA" in str(exc):
-                print(
-                    "\nERROR: Checkpoint contains bitsandbytes 4-bit tensors that cannot be\n"
-                    "  converted without CUDA.  Options:\n"
-                    "  1. Re-train — the current trainer code explicitly dequantizes at merge time.\n"
-                    "  2. Export from a CUDA machine where bitsandbytes can dequantize.\n",
-                    file=sys.stderr,
+                log.error(
+                    "Checkpoint contains bitsandbytes 4-bit tensors that cannot be converted "
+                    "without CUDA. Options: (1) Re-train — current trainer dequantizes at merge time. "
+                    "(2) Export from a CUDA machine."
                 )
                 sys.exit(1)
             raise
@@ -135,15 +133,14 @@ def _strip_bnb_quantization(checkpoint: Path) -> None:
         cfg = _json.loads(config_file.read_text())
         cfg.pop("quantization_config", None)
         config_file.write_text(_json.dumps(cfg, indent=2))
-        print(f"  Stripped bitsandbytes quantization_config from {config_file}")
+        log.info("Stripped bitsandbytes quantization_config from %s", config_file)
 
 
 def _run(cmd: list[str], description: str) -> None:
-    print(f"\n{description}")
-    print("  $", " ".join(cmd))
+    log.info("%s  $ %s", description, " ".join(cmd))
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
-        print(f"ERROR: command failed (exit {result.returncode}).", file=sys.stderr)
+        log.error("command failed (exit %d): %s", result.returncode, " ".join(cmd))
         sys.exit(1)
 
 
@@ -172,15 +169,13 @@ def export(
         description=f"Quantising ({quantize}): {output}",
     )
 
-    print(f"\nVerifying GGUF loads: {output} …")
+    log.info("Verifying GGUF loads: %s …", output)
     try:
         from adapters.inference import LlamaCppInferenceAdapter
         LlamaCppInferenceAdapter(model_path=str(output))
-        print("  LlamaCppInferenceAdapter instantiated successfully (lazy load).")
+        log.info("LlamaCppInferenceAdapter instantiated successfully (lazy load).")
     except ImportError as exc:
-        print(f"WARNING: could not verify GGUF ({exc}).", file=sys.stderr)
+        log.warning("could not verify GGUF: %s", exc)
 
     size_mb = output.stat().st_size / (1024 ** 2)
-    print(f"\nExport complete.")
-    print(f"  Output : {output}")
-    print(f"  Size   : {size_mb:.1f} MB")
+    log.info("Export complete  output=%s  size=%.1f MB", output, size_mb)

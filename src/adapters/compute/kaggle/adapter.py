@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -14,6 +15,8 @@ from typing import Literal
 
 from domain.models import RemoteTrainConfig
 from domain.ports import RemoteTrainingPort
+
+log = logging.getLogger(__name__)
 
 def _kaggle_bin() -> str:
     found = shutil.which("kaggle")
@@ -206,7 +209,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         while True:
             status = self.status(eval_slug)
             elapsed = int(time.time() - started)
-            print(f"Eval status: {status} elapsed={elapsed}s", flush=True)
+            log.info("kaggle eval status=%s  elapsed=%ds", status, elapsed)
             if status == "done":
                 break
             if status == "failed":
@@ -266,7 +269,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
     def _push_dataset(self, staging: Path) -> None:
         """Create the dataset on first run; add a new version on subsequent runs."""
         staged_files = [f.name for f in staging.iterdir() if f.is_file()]
-        print(f"Staged files for upload: {staged_files}", flush=True)
+        log.info("Staged files for upload: %s", staged_files)
 
         create_result = subprocess.run(
             [_kaggle_bin(), "datasets", "create", "-p", str(staging)],
@@ -276,9 +279,9 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         dataset_exists = create_result.returncode != 0 or "error" in create_output.lower()
 
         if not dataset_exists:
-            print(f"Dataset created: {create_output}", flush=True)
+            log.info("Dataset created: %s", create_output)
         else:
-            print(f"Dataset exists, uploading new version … ({create_output})", flush=True)
+            log.info("Dataset exists, uploading new version … (%s)", create_output)
             version_result = subprocess.run(
                 [_kaggle_bin(), "datasets", "version", "-p", str(staging), "-m", "update"],
                 capture_output=True, text=True,
@@ -286,7 +289,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             version_output = (version_result.stdout + version_result.stderr).strip()
             if version_result.returncode != 0 or "error" in version_output.lower():
                 raise RuntimeError(f"Dataset version upload failed:\n{version_output}")
-            print(f"Dataset version uploaded: {version_output}", flush=True)
+            log.info("Dataset version uploaded: %s", version_output)
 
     def _wait_for_dataset(self, dataset_ref: str, timeout: int = 300, interval: int = 15) -> None:
         """Poll via the Kaggle Python API until a .whl is visible in the dataset."""
@@ -294,7 +297,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         api = KaggleApi()
         api.authenticate()
 
-        print(f"Polling for .whl in dataset {dataset_ref} …", flush=True)
+        log.info("Polling for .whl in dataset %s …", dataset_ref)
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
@@ -303,16 +306,16 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
                     names = [f.name for f in response.files]
                     whl = [n for n in names if n.endswith(".whl")]
                     if whl:
-                        print(f"Dataset ready — {whl[0]} visible.", flush=True)
+                        log.info("Dataset ready — %s visible.", whl[0])
                         return
-                    print(f"  visible files: {names[:6]} — no .whl yet …", flush=True)
+                    log.info("  visible files: %s — no .whl yet …", names[:6])
                 else:
-                    print("  no files visible yet …", flush=True)
+                    log.info("  no files visible yet …")
             except Exception as exc:
-                print(f"  poll error: {exc}", flush=True)
+                log.warning("  poll error: %s", exc)
             time.sleep(interval)
 
-        print(f"WARNING: .whl not confirmed in {dataset_ref} after {timeout}s — proceeding anyway.", flush=True)
+        log.warning(".whl not confirmed in %s after %ds — proceeding anyway.", dataset_ref, timeout)
 
     def _render_notebook(self, config: RemoteTrainConfig, kernel_dir: Path) -> None:
         template_path = Path(__file__).parent / "notebook_template.ipynb"

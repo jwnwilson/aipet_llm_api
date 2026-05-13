@@ -12,7 +12,7 @@ from domain.ports import ModelStorePort
 from interactors.api.auth import require_auth
 from interactors.api.deps import get_model_store
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/models",
@@ -98,5 +98,5 @@ def activate_model(
         raise HTTPException(status_code=500, detail=f"Failed to load model from storage: {exc}") from exc
 
     configure(LlamaCppInferenceAdapter(model_path=str(local_path)))
-    logger.info("Activated model %s — gguf_path=%s", model.id, model.gguf_path)
+    log.info("Activated model %s — gguf_path=%s", model.id, model.gguf_path)
     return model

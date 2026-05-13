@@ -6,23 +6,24 @@ Installed as part of the project wheel so it is importable as:
 """
 from __future__ import annotations
 
-import io
 import json
+import logging
 import os
 import subprocess
 import sys
 import tarfile
-from contextlib import redirect_stdout
 from pathlib import Path
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s  %(message)s")
+log = logging.getLogger(__name__)
+
+BUCKET = os.environ["AWS_S3_BUCKET"]
+RUN_ID = os.environ["RUN_ID"]
 
 
 def _s3():
     import boto3
     return boto3.client("s3")
-
-
-BUCKET = os.environ["AWS_S3_BUCKET"]
-RUN_ID = os.environ["RUN_ID"]
 
 
 def put_status(status: str) -> None:
@@ -47,6 +48,7 @@ def download_prefix(s3_client, prefix: str, dest: Path) -> None:
 
 def main() -> None:
     s3 = _s3()
+    log.info("run_id=%s  bucket=%s  starting", RUN_ID, BUCKET)
     put_status("running")
     put_progress(0.0, "starting")
 
@@ -67,6 +69,7 @@ def main() -> None:
         sys.exit("No .whl found in S3 prefix — re-run submit to rebuild.")
 
     whl_path = Path("/tmp") / whl_key.split("/")[-1]
+    log.info("installing wheel  key=%s", whl_key)
     s3.download_file(BUCKET, whl_key, str(whl_path))
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "--no-deps", "-q", str(whl_path)],
@@ -76,6 +79,7 @@ def main() -> None:
 
     # Download training data
     data_dir = Path("data")
+    log.info("downloading training data  prefix=%s/data/", RUN_ID)
     download_prefix(s3, f"{RUN_ID}/data/", data_dir)
     put_progress(0.15, "data downloaded")
 
@@ -90,6 +94,7 @@ def main() -> None:
         "--eval-data", "data/eval.jsonl",
         "--output-dir", "models/checkpoints",
     ]
+    log.info("starting training  cmd=%s", " ".join(cmd))
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         put_status("failed")
@@ -107,6 +112,7 @@ def main() -> None:
     with tarfile.open(archive, "w:gz") as tf:
         tf.add(checkpoint_dir, arcname="checkpoints")
 
+    log.info("uploading checkpoint  key=%s/checkpoint.tar.gz", RUN_ID)
     s3.upload_file(str(archive), BUCKET, f"{RUN_ID}/checkpoint.tar.gz")
     put_progress(0.95, "evaluating checkpoint")
 
@@ -116,17 +122,11 @@ def main() -> None:
         from domain.train.evaluate import PASS_THRESHOLD, evaluate, infer_hf, load_hf_pipeline
 
         pipe = load_hf_pipeline(str(checkpoint_dir))
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            exit_code = evaluate(Path("data/eval.jsonl"), lambda p: infer_hf(pipe, p))
-
-        output = buf.getvalue()
-        valid_pct = _parse_valid_pct(output)
-        if valid_pct is None:
-            valid_pct = 1.0 if exit_code == 0 else 0.0
+        exit_code, valid_pct = evaluate(Path("data/eval.jsonl"), lambda p: infer_hf(pipe, p))
         passed = valid_pct >= PASS_THRESHOLD
+        log.info("eval complete  valid_pct=%.1f%%  passed=%s", valid_pct * 100, passed)
     except Exception as exc:
-        print(f"[eval] failed — storing 0%: {exc}", file=sys.stderr)
+        log.error("eval failed — storing 0%%: %s", exc, exc_info=True)
         valid_pct, passed = 0.0, False
 
     s3.put_object(
@@ -136,16 +136,7 @@ def main() -> None:
     )
     put_progress(1.0, "done")
     put_status("done")
-
-
-def _parse_valid_pct(output: str) -> float | None:
-    for line in output.splitlines():
-        if line.startswith("Valid:") and "(" in line and "%)" in line:
-            try:
-                return float(line.split("(")[1].split("%")[0].strip()) / 100.0
-            except (IndexError, ValueError):
-                pass
-    return None
+    log.info("run complete  run_id=%s", RUN_ID)
 
 
 if __name__ == "__main__":

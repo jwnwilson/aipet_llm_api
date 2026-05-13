@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import os
 import shutil
 import subprocess
 import tarfile
+
+log = logging.getLogger(__name__)
 from pathlib import Path
 from typing import Literal
 
@@ -55,7 +58,7 @@ class ColabTrainingAdapter(RemoteTrainingPort):
         notebook_id = self._upload_file(notebook_path, folder_id, "notebook.ipynb")
 
         colab_url = f"https://colab.research.google.com/drive/{notebook_id}"
-        print(f"\n  Open in Colab and click 'Run All':\n  {colab_url}\n")
+        log.info("Open in Colab and click 'Run All': %s", colab_url)
 
         return folder_id
 

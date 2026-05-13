@@ -12,7 +12,7 @@ from domain.ports import InferencePort
 from interactors.api.auth import require_auth
 from interactors.api.deps import get_adapter
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -25,7 +25,7 @@ def infer(
     try:
         return adapter.infer(request)
     except Exception:
-        logger.exception("Unexpected error during inference")
+        log.exception("Unexpected error during inference")
         raise HTTPException(status_code=500, detail={"error": "inference_failed"})
 
 

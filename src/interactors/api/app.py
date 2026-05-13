@@ -11,7 +11,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 def _make_storage_adapter():
@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if auth0_domain and auth0_audience:
         configure_auth(Auth0Adapter(domain=auth0_domain, audience=auth0_audience))
     else:
-        logger.warning(
+        log.warning(
             "AUTH0_DOMAIN or AUTH0_AUDIENCE not set — "
             "protected endpoints will return 500 until configured"
         )
@@ -71,9 +71,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             storage.download(active.gguf_path, local_path)
             model_path = str(local_path)
-            logger.info("Loading active model %s from storage key %s", active.id, active.gguf_path)
+            log.info("Loading active model %s from storage key %s", active.id, active.gguf_path)
         except Exception:
-            logger.warning(
+            log.warning(
                 "Could not load active model %s from storage; falling back to MODEL_PATH",
                 active.id,
                 exc_info=True,

@@ -12,7 +12,7 @@ from domain.models import InferenceRequest, InferenceResponse
 from domain.ports import InferencePort
 from adapters.prompt import build_prompt, parse_response
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 # GBNF grammar that forces the sampler to emit a valid InferenceResponse JSON.
 # Each optional field appears AT MOST ONCE, preventing the model from looping on
@@ -31,7 +31,7 @@ _RESPONSE_GBNF = (
 try:
     _GRAMMAR: llama_cpp.LlamaGrammar | None = llama_cpp.LlamaGrammar.from_string(_RESPONSE_GBNF)
 except Exception as _grammar_exc:
-    logger.warning("Grammar-constrained sampling unavailable: %s", _grammar_exc)
+    log.warning("Grammar-constrained sampling unavailable: %s", _grammar_exc)
     _GRAMMAR = None
 
 # Actions that require a target object and the scene types they must come from.
@@ -64,7 +64,7 @@ class LlamaCppInferenceAdapter(InferencePort):
 
     def _load_model(self) -> llama_cpp.Llama:
         """Instantiate and return the Llama model (called once, lazily)."""
-        logger.info("Loading GGUF model from %s", self._model_path)
+        log.info("Loading GGUF model from %s", self._model_path)
         return llama_cpp.Llama(
             model_path=self._model_path,
             n_ctx=self._context_size,
@@ -123,12 +123,12 @@ class LlamaCppInferenceAdapter(InferencePort):
                 stop=["```"],
                 grammar=_GRAMMAR,
             )
-            logger.info(f"LLM Response: {completion}")
+            log.info(f"LLM Response: {completion}")
             raw_text: str = completion["choices"][0]["text"]
             response = parse_response(raw_text)
             return self._ensure_target(response, request)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
+            log.warning(
                 "Inference failed, returning IDLE fallback. Reason: %s",
                 exc,
                 exc_info=True,

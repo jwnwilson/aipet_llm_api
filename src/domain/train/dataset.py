@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 from collections import Counter
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from domain.actions import Action
 from domain.models import (
@@ -258,13 +261,13 @@ def check_dataset_distribution(path: Path) -> None:
             except Exception:
                 pass
 
-    print(f"\nAction distribution in {path.name} (n={total}):")
+    log.info("Action distribution in %s (n=%d):", path.name, total)
 
     if total < _DISTRIBUTION_MIN_SAMPLES:
         for action in sorted(counts):
             pct = counts[action] / total if total else 0
-            print(f"  {action:<12} {counts[action]:5d}  ({pct:.1%})")
-        print(f"  (distribution check skipped — need ≥ {_DISTRIBUTION_MIN_SAMPLES} examples)")
+            log.info("  %-12s %5d  (%.1f%%)", action, counts[action], pct * 100)
+        log.info("  (distribution check skipped — need ≥ %d examples)", _DISTRIBUTION_MIN_SAMPLES)
         return
 
     violations: list[str] = []
@@ -277,7 +280,7 @@ def check_dataset_distribution(path: Path) -> None:
         elif pct > 0.25:
             violations.append(f"{action} overrepresented ({pct:.1%} > 25%)")
             flag = " ← OVER"
-        print(f"  {action:<12} {counts[action]:5d}  ({pct:.1%}){flag}")
+        log.info("  %-12s %5d  (%.1f%%)%s", action, counts[action], pct * 100, flag)
 
     if violations:
         raise AssertionError("Dataset distribution out of bounds:\n  " + "\n  ".join(violations))
@@ -317,9 +320,9 @@ def validate_jsonl(path: Path) -> dict[str, int]:
 
     if errors:
         for msg in errors[:10]:
-            print(msg)
+            log.warning(msg)
         if len(errors) > 10:
-            print(f"  ... and {len(errors) - 10} more")
+            log.warning("  ... and %d more", len(errors) - 10)
 
     return {"total": total, "valid": valid, "invalid": invalid}
 
@@ -338,36 +341,36 @@ def generate(
     """Generate and validate training + eval datasets. Returns True if all examples are valid."""
     rng = random.Random(seed)
 
-    print(f"Generating {train_size} training examples …")
+    log.info("Generating %d training examples …", train_size)
     train_path = data_dir / "train.jsonl"
     write_jsonl(train_path, generate_examples(train_size, rng))
-    print(f"  Written → {train_path}")
+    log.info("Written → %s", train_path)
 
-    print(f"Generating {eval_size} eval examples …")
+    log.info("Generating %d eval examples …", eval_size)
     eval_path = data_dir / "eval.jsonl"
     write_jsonl(eval_path, generate_examples(eval_size, rng))
-    print(f"  Written → {eval_path}")
+    log.info("Written → %s", eval_path)
 
-    print("\nValidating train.jsonl …")
+    log.info("Validating train.jsonl …")
     train_summary = validate_jsonl(train_path)
-    print(f"  total={train_summary['total']}  valid={train_summary['valid']}  invalid={train_summary['invalid']}")
+    log.info("  total=%d  valid=%d  invalid=%d", train_summary["total"], train_summary["valid"], train_summary["invalid"])
 
-    print("Validating eval.jsonl …")
+    log.info("Validating eval.jsonl …")
     eval_summary = validate_jsonl(eval_path)
-    print(f"  total={eval_summary['total']}  valid={eval_summary['valid']}  invalid={eval_summary['invalid']}")
+    log.info("  total=%d  valid=%d  invalid=%d", eval_summary["total"], eval_summary["valid"], eval_summary["invalid"])
 
     all_valid = train_summary["invalid"] == 0 and eval_summary["invalid"] == 0
     if not all_valid:
         total_invalid = train_summary["invalid"] + eval_summary["invalid"]
-        print(f"\n{total_invalid} invalid example(s) found — review errors above.")
+        log.warning("%d invalid example(s) found — review errors above.", total_invalid)
         return False
 
     try:
         check_dataset_distribution(train_path)
         check_dataset_distribution(eval_path)
     except AssertionError as exc:
-        print(f"\nDistribution check failed: {exc}")
+        log.warning("Distribution check failed: %s", exc)
         return False
 
-    print("\nAll examples valid and distribution within bounds.")
+    log.info("All examples valid and distribution within bounds.")
     return True

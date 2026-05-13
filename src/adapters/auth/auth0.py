@@ -9,7 +9,7 @@ import jwt
 from domain.models import UserContext
 from domain.ports import AuthPort
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class Auth0Adapter(AuthPort):
@@ -33,15 +33,15 @@ class Auth0Adapter(AuthPort):
             )
             sub = payload.get("sub")
             if sub is None:
-                logger.debug("JWT missing sub claim")
+                log.debug("JWT missing sub claim")
                 return None
             return UserContext(
                 user_id=sub,
                 email=payload.get("email"),
             )
         except jwt.InvalidTokenError as exc:
-            logger.debug("JWT validation failed: %s", type(exc).__name__)
+            log.debug("JWT validation failed: %s", type(exc).__name__)
             return None
         except Exception:
-            logger.warning("Unexpected error validating JWT", exc_info=True)
+            log.warning("Unexpected error validating JWT", exc_info=True)
             return None

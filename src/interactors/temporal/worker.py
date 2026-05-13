@@ -67,7 +67,7 @@ async def main() -> None:
         ],
     )
 
-    print(f"Worker started — task_queue={TASK_QUEUE}  host={temporal_host}")
+    logging.getLogger(__name__).info("Worker started — task_queue=%s  host=%s", TASK_QUEUE, temporal_host)
     await worker.run()
 
 

@@ -162,7 +162,15 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
             )
             client = self._build_vastai_client()
             result = client.logs(instance_id=instance_id, tail="200")
-            return str(result) if result else ""
+            raw = str(result) if result else ""
+            # Filter VastAI SSH relay noise — port collisions on their shared relay
+            # (ssh*.vast.ai) don't affect training because we communicate via S3.
+            lines = [
+                ln for ln in raw.splitlines()
+                if "remote port forwarding failed" not in ln
+                and "Permanently added" not in ln
+            ]
+            return "\n".join(lines)
         except Exception:
             return ""
 

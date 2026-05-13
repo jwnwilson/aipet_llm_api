@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
-import sys
+import logging
 from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
 from adapters.prompt import parse_response
+
+log = logging.getLogger(__name__)
 
 PASS_THRESHOLD = 0.95
 
@@ -26,7 +28,7 @@ def load_hf_pipeline(checkpoint: str) -> Any:
     else:
         model_dtype = torch.float32
 
-    print(f"Loading HF checkpoint from {checkpoint} …")
+    log.info("Loading HF checkpoint from %s …", checkpoint)
     return pipeline(
         "text-generation",
         model=checkpoint,
@@ -59,8 +61,8 @@ def infer_llama_cpp(adapter: Any, prompt: str) -> str:
     return completion["choices"][0]["text"]
 
 
-def evaluate(eval_data: Path, infer_fn: Callable[[str], str]) -> int:
-    """Run evaluation; returns exit code 0 (pass ≥95%) or 1 (fail)."""
+def evaluate(eval_data: Path, infer_fn: Callable[[str], str]) -> tuple[int, float]:
+    """Run evaluation; returns (exit_code, valid_pct) where exit_code is 0 (pass ≥95%) or 1."""
     total = valid = invalid = 0
     action_counts: Counter[str] = Counter()
 
@@ -72,7 +74,7 @@ def evaluate(eval_data: Path, infer_fn: Callable[[str], str]) -> int:
             try:
                 example: dict[str, str] = json.loads(raw_line)
             except json.JSONDecodeError as exc:
-                print(f"  [!] line {line_no}: cannot parse JSONL line: {exc}", file=sys.stderr)
+                log.warning("line %d: cannot parse JSONL line: %s", line_no, exc)
                 continue
 
             total += 1
@@ -84,20 +86,16 @@ def evaluate(eval_data: Path, infer_fn: Callable[[str], str]) -> int:
             except Exception as exc:  # noqa: BLE001
                 invalid += 1
                 if invalid <= 5:
-                    print(f"  [!] line {line_no}: invalid response — {exc}", file=sys.stderr)
+                    log.warning("line %d: invalid response — %s", line_no, exc)
 
     if total == 0:
-        print("ERROR: no examples found in eval data.", file=sys.stderr)
-        return 1
+        log.error("no examples found in eval data")
+        return 1, 0.0
 
     pct = valid / total
     status = "PASS" if pct >= PASS_THRESHOLD else "FAIL"
-    print(f"Valid: {valid}/{total} ({pct:.1%})  [{status}]")
-    print("\nAction distribution:")
-    if action_counts:
-        for action, count in sorted(action_counts.items(), key=lambda x: -x[1]):
-            print(f"  {action:<12} {count:>5}  {'#' * min(40, count)}")
-    else:
-        print("  (no valid responses)")
+    log.info("Valid: %d/%d (%.1f%%)  [%s]", valid, total, pct * 100, status)
+    dist = "  ".join(f"{a}:{c}" for a, c in sorted(action_counts.items(), key=lambda x: -x[1]))
+    log.info("Action distribution: %s", dist or "(none)")
 
-    return 0 if pct >= PASS_THRESHOLD else 1
+    return 0 if pct >= PASS_THRESHOLD else 1, pct

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 from collections import Counter
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 try:
     import torch
@@ -105,7 +108,7 @@ def _dequantize_linear4bit(model: "AutoModelForCausalLM") -> None:
         replaced += 1
 
     if replaced:
-        print(f"  Explicitly dequantized {replaced} remaining Linear4bit layer(s) to float16.")
+        log.info("Explicitly dequantized %d remaining Linear4bit layer(s) to float16.", replaced)
     if skipped:
         raise RuntimeError(
             f"  {skipped} Linear4bit layer(s) could not be dequantized: quant_state was "
@@ -295,9 +298,8 @@ class _ActionQualityCallback(TrainerCallback):
 
         if total > 0:
             pct = correct / total
-            print(f"\n[Quality] step={state.global_step}  action_acc={correct}/{total} ({pct:.1%})")
-            for action, count in sorted(action_counts.items(), key=lambda x: -x[1]):
-                print(f"  {action}: {count}")
+            dist = "  ".join(f"{a}:{c}" for a, c in sorted(action_counts.items(), key=lambda x: -x[1]))
+            log.info("[Quality] step=%d  action_acc=%d/%d (%.1f%%)  %s", state.global_step, correct, total, pct * 100, dist)
 
 
 class _WeightedTrainer(Trainer):
@@ -365,9 +367,9 @@ def train(
     grad_accum = max(1, 4 // effective_batch)
 
     device_label = "CUDA" if use_cuda else ("MPS" if use_mps else "CPU")
-    print(f"Device: {device_label}  batch_size={effective_batch}  grad_accum={grad_accum}")
+    log.info("Device: %s  batch_size=%d  grad_accum=%d", device_label, effective_batch, grad_accum)
 
-    print(f"Loading tokeniser from: {model}")
+    log.info("Loading tokeniser from: %s", model)
     tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -407,7 +409,7 @@ def train(
     # force_qlora is False → _use_qlora stays False (standard LoRA on any device)
 
     if not _PEFT_AVAILABLE:
-        print("WARNING: peft not installed — full fine-tune only (install with: uv sync)")
+        log.warning("peft not installed — full fine-tune only (install with: uv sync)")
 
     _lora_cfg = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -428,7 +430,7 @@ def train(
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=load_dtype or torch.float16,
         )
-        print(f"Loading model from: {model}  dtype=4-bit NF4 (QLoRA)")
+        log.info("Loading model from: %s  dtype=4-bit NF4 (QLoRA)", model)
         hf_model = AutoModelForCausalLM.from_pretrained(
             model, quantization_config=_bnb, device_map={"": 0},
             trust_remote_code=True, attn_implementation="eager",
@@ -442,7 +444,7 @@ def train(
         use_lora = True
     else:
         dtype_label = "bfloat16" if use_bf16 else ("float16" if use_fp16 else "default")
-        print(f"Loading model from: {model}  dtype={dtype_label}")
+        log.info("Loading model from: %s  dtype=%s", model, dtype_label)
         hf_model = AutoModelForCausalLM.from_pretrained(
             model, trust_remote_code=True, dtype=load_dtype,
             attn_implementation="eager",
@@ -450,34 +452,34 @@ def train(
         hf_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         use_lora = _PEFT_AVAILABLE
         if use_lora:
-            print("Applying LoRA adapters …")
+            log.info("Applying LoRA adapters …")
             hf_model = get_peft_model(hf_model, _lora_cfg)
             hf_model.enable_input_require_grads()
 
     trainable = sum(p.numel() for p in hf_model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in hf_model.parameters())
-    print(f"Trainable params: {trainable/1e6:.1f}M / {total/1e9:.2f}B "
-          f"({'QLoRA' if _use_qlora else 'LoRA' if use_lora else 'full'})")
+    log.info("Trainable params: %.1fM / %.2fB (%s)", trainable / 1e6, total / 1e9,
+             "QLoRA" if _use_qlora else "LoRA" if use_lora else "full")
 
     # Auto-reduce batch for large models when user hasn't overridden it.
     # QLoRA keeps the base in 4-bit (~0.85 GB for 1.7B), so batch=4 fits on a T4.
     if batch_size is None and use_cuda and total > 1_000_000_000:
         effective_batch = 4 if _use_qlora else 1
         grad_accum = 2 if _use_qlora else 8
-        print(f"Large model — batch={effective_batch}, grad_accum={grad_accum}")
+        log.info("Large model — batch=%d  grad_accum=%d", effective_batch, grad_accum)
 
-    print(f"Loading training data from: {train_data}")
+    log.info("Loading training data from: %s", train_data)
     train_records = load_jsonl(train_data)
-    print(f"Loading eval data from: {eval_data}")
+    log.info("Loading eval data from: %s", eval_data)
     eval_records = load_jsonl(eval_data)
 
     if dry_run:
         train_records = train_records[:8]
         eval_records = eval_records[:4]
 
-    print(f"Tokenising {len(train_records)} training examples …")
+    log.info("Tokenising %d training examples …", len(train_records))
     train_dataset = build_hf_dataset(train_records, tokenizer)
-    print(f"Tokenising {len(eval_records)} eval examples …")
+    log.info("Tokenising %d eval examples …", len(eval_records))
     eval_dataset = build_hf_dataset(eval_records, tokenizer)
 
     sample_weights = compute_sample_weights(train_records)
@@ -535,7 +537,7 @@ def train(
         sample_weights=sample_weights,
     )
 
-    print("Starting training …")
+    log.info("Starting training …")
     train_result = trainer.train()
 
     if use_lora:
@@ -545,21 +547,21 @@ def train(
             # 1. Save only the tiny LoRA adapter from the trained model.
             # 2. Reload the base in float16 (no quantization).
             # 3. Merge the adapter onto the clean float16 base and save.
-            print("QLoRA — saving adapter then re-merging onto float16 base …")
+            log.info("QLoRA — saving adapter then re-merging onto float16 base …")
             adapter_dir = Path(output_dir) / "_adapter"
             trainer.model.save_pretrained(str(adapter_dir))
             tokenizer.save_pretrained(str(adapter_dir))
 
-            print(f"  Reloading base model {model} in float16 for clean merge …")
+            log.info("Reloading base model %s in float16 for clean merge …", model)
             from peft import PeftModel
             base = AutoModelForCausalLM.from_pretrained(
                 model, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True,
             )
             peft_model = PeftModel.from_pretrained(base, str(adapter_dir))
-            print("  Merging LoRA adapters into float16 base …")
+            log.info("Merging LoRA adapters into float16 base …")
             merged = peft_model.merge_and_unload()
         else:
-            print("Merging LoRA adapters into base model …")
+            log.info("Merging LoRA adapters into base model …")
             merged = trainer.model.merge_and_unload()
 
         merged.save_pretrained(output_dir)
@@ -567,7 +569,7 @@ def train(
         for _d in Path(output_dir).iterdir():
             if _d.is_dir() and _d.name.startswith("checkpoint-"):
                 shutil.rmtree(_d)
-                print(f"  Removed {_d.name}")
+                log.info("Removed checkpoint dir: %s", _d.name)
         if _use_qlora:
             shutil.rmtree(adapter_dir, ignore_errors=True)
     else:
@@ -581,9 +583,8 @@ def train(
             break
 
     best_checkpoint = trainer.state.best_model_checkpoint or output_dir
-    print("\n" + "=" * 60)
-    print("Training complete.")
-    print(f"  Final train loss : {train_result.training_loss:.4f}")
-    print(f"  Best eval loss   : {eval_loss:.4f}" if eval_loss is not None else "  Best eval loss   : N/A")
-    print(f"  Checkpoint path  : {best_checkpoint}")
-    print("=" * 60)
+    eval_loss_str = f"{eval_loss:.4f}" if eval_loss is not None else "N/A"
+    log.info(
+        "Training complete  train_loss=%.4f  eval_loss=%s  checkpoint=%s",
+        train_result.training_loss, eval_loss_str, best_checkpoint,
+    )

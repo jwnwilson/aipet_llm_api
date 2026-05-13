@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import io
-import sys
 import time
-from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -402,33 +399,10 @@ async def _evaluate_local(config: EvalConfig, loop: asyncio.AbstractEventLoop) -
     pipe = load_hf_pipeline(config.checkpoint)
     infer_fn = lambda prompt: infer_hf(pipe, prompt)  # noqa: E731
 
-    buf = io.StringIO()
-
-    def _run() -> int:
-        with redirect_stdout(buf):
-            return evaluate(Path(config.eval_data), infer_fn)
-
-    exit_code = await loop.run_in_executor(None, _run)
-
-    output = buf.getvalue()
-    valid_pct = _parse_valid_pct(output)
-    passed = exit_code == 0
-    if valid_pct is None:
-        valid_pct = 1.0 if passed else 0.0
-
-    return EvalResult(valid_pct=valid_pct, passed=passed)
-
-
-def _parse_valid_pct(output: str) -> float | None:
-    """Extract valid fraction from a line like 'Valid: 190/200 (95.0%)  [PASS]'."""
-    for line in output.splitlines():
-        if line.startswith("Valid:") and "(" in line and "%)" in line:
-            try:
-                pct_str = line.split("(")[1].split("%")[0].strip()
-                return float(pct_str) / 100.0
-            except (IndexError, ValueError):
-                pass
-    return None
+    exit_code, valid_pct = await loop.run_in_executor(
+        None, lambda: evaluate(Path(config.eval_data), infer_fn)
+    )
+    return EvalResult(valid_pct=valid_pct, passed=exit_code == 0)
 
 
 @activity.defn
