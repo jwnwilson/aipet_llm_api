@@ -44,9 +44,11 @@ def _auth_bypass():
     # Override the conftest _auth_bypass: remove dependency override and
     # use a real (fake) AuthAdapter so auth is actually enforced.
     from interactors.api.auth import require_auth
+    from interactors.api.deps import clear_auth
     app.dependency_overrides.pop(require_auth, None)
     configure_auth(_FakeAuthAdapter())
     yield
+    clear_auth()
     app.dependency_overrides[require_auth] = lambda: None
 
 
