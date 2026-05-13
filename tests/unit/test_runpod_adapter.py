@@ -149,55 +149,42 @@ class TestRunPodAdapterDownload:
 
 
 class TestRunPodAdapterLogs:
-    def test_terminate_pod_archives_logs_to_s3(self, monkeypatch, tmp_path):
+    def test_terminate_pod_terminates_without_archiving_logs(self, monkeypatch, tmp_path):
+        # logs are written by the training script; _terminate_pod only terminates the pod
         adapter, s3 = _make_adapter(monkeypatch, tmp_path)
         s3.get_object.return_value = {"Body": MagicMock(read=lambda: b"pod-xyz")}
 
         import sys
-        mock_runpod = MagicMock()
-        mock_runpod.get_pod_log.return_value = "epoch 1 loss=0.5\nepoch 2 loss=0.3"
+        mock_runpod = MagicMock(spec=["terminate_pod"])
         sys.modules["runpod"] = mock_runpod
 
         adapter._terminate_pod("runpod/test-exp-aabbcc")
 
-        put_calls = [c for c in s3.put_object.call_args_list if c.kwargs.get("Key", "").endswith("/logs.txt")]
-        assert len(put_calls) == 1
-        assert put_calls[0].kwargs["Body"] == b"epoch 1 loss=0.5\nepoch 2 loss=0.3"
-        mock_runpod.terminate_pod.assert_called_once()
+        mock_runpod.terminate_pod.assert_called_once_with("pod-xyz")
+        s3.put_object.assert_not_called()
 
-    def test_logs_returns_s3_archive_when_available(self, monkeypatch, tmp_path):
-        adapter, s3 = _make_adapter(monkeypatch, tmp_path)
-        archived = b"archived training log line 1\nline 2"
-        s3.get_object.return_value = {"Body": MagicMock(read=lambda: archived)}
+    def test_logs_reads_from_s3_via_storage_adapter(self, monkeypatch, tmp_path):
+        adapter, _ = _make_adapter(monkeypatch, tmp_path)
 
-        import sys
-        mock_runpod = MagicMock()
-        sys.modules["runpod"] = mock_runpod
+        storage_mock = MagicMock()
+        storage_mock.read_text.return_value = "epoch 1 loss=0.5\nepoch 2 loss=0.3\n"
 
-        result = adapter.logs("runpod/test-exp-aabbcc")
+        with patch("adapters.compute.runpod.adapter.S3StorageAdapter", return_value=storage_mock):
+            result = adapter.logs("runpod/test-exp-aabbcc")
 
-        assert result == archived.decode()
-        mock_runpod.get_pod_log.assert_not_called()
+        assert result == "epoch 1 loss=0.5\nepoch 2 loss=0.3\n"
+        storage_mock.read_text.assert_called_once_with("runpod/test-exp-aabbcc/logs.txt")
 
-    def test_logs_falls_back_to_runpod_api(self, monkeypatch, tmp_path):
-        adapter, s3 = _make_adapter(monkeypatch, tmp_path)
+    def test_logs_returns_empty_string_when_no_log_in_s3(self, monkeypatch, tmp_path):
+        adapter, _ = _make_adapter(monkeypatch, tmp_path)
 
-        def get_object(Bucket, Key):
-            if Key.endswith("logs.txt"):
-                raise Exception("NoSuchKey")
-            return {"Body": MagicMock(read=lambda: b"pod-xyz")}
+        storage_mock = MagicMock()
+        storage_mock.read_text.return_value = ""
 
-        s3.get_object.side_effect = get_object
+        with patch("adapters.compute.runpod.adapter.S3StorageAdapter", return_value=storage_mock):
+            result = adapter.logs("runpod/test-exp-aabbcc")
 
-        import sys
-        mock_runpod = MagicMock()
-        mock_runpod.get_pod_log.return_value = "live log output"
-        sys.modules["runpod"] = mock_runpod
-
-        result = adapter.logs("runpod/test-exp-aabbcc")
-
-        assert result == "live log output"
-        mock_runpod.get_pod_log.assert_called_once_with("pod-xyz")
+        assert result == ""
 
 
 class TestRunPodAdapterProgress:

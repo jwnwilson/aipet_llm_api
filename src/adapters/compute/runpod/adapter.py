@@ -152,34 +152,8 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
         return str(dest)
 
     def logs(self, run_id: str) -> str:
-        # Prefer the archived copy (available even after pod is gone)
-        try:
-            archived = (
-                self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/logs.txt")[
-                    "Body"
-                ]
-                .read()
-                .decode()
-            )
-            if archived:
-                return archived
-        except Exception:
-            pass
-
-        # Fall back to live RunPod API (pod still running)
-        try:
-            runpod = self._configure_runpod()
-            pod_id = (
-                self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/pod_id.txt")[
-                    "Body"
-                ]
-                .read()
-                .decode()
-                .strip()
-            )
-            return runpod.get_pod_log(pod_id) or ""
-        except Exception:
-            return ""
+        from adapters.storage.s3 import S3StorageAdapter
+        return S3StorageAdapter().read_text(f"{run_id}/logs.txt")
 
     def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:  # noqa: ARG002
         # Eval ran on the training pod (training_script.py) and results
@@ -234,7 +208,6 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
         """Terminate the training pod for run_id (best-effort, swallows all errors)."""
         try:
             runpod = self._configure_runpod()
-
             pod_id = (
                 self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/pod_id.txt")[
                     "Body"
@@ -243,18 +216,6 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
                 .decode()
                 .strip()
             )
-            try:
-                raw_logs = runpod.get_pod_log(pod_id) or ""
-                if raw_logs:
-                    self._s3.put_object(
-                        Bucket=self._bucket,
-                        Key=f"{run_id}/logs.txt",
-                        Body=raw_logs.encode(),
-                    )
-                    log.info("runpod logs archived  run_id=%s  bytes=%d", run_id, len(raw_logs))
-            except Exception as exc:
-                log.warning("runpod log capture failed (best-effort)  run_id=%s  error=%s", run_id, exc)
-
             log.info("runpod terminating pod  run_id=%s  pod_id=%s", run_id, pod_id)
             runpod.terminate_pod(pod_id)
             log.info("runpod pod terminated  run_id=%s  pod_id=%s", run_id, pod_id)
