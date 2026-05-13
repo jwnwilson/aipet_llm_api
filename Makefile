@@ -30,7 +30,7 @@ sync: ## Install / sync all dependencies including dev groups
 	uv sync --extra dev --reinstall-package kaggle
 
 serve: .venv ## Start the FastAPI server  (MODEL_PATH=... make serve)
-	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run python -m uvicorn interactors.api.app:app \
+	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run --env-file .env python -m uvicorn interactors.api.app:app \
 		--host $(HOST) --port $(PORT) --reload
 
 test: .venv ## Run unit + CLI tests (fast; excludes integration)

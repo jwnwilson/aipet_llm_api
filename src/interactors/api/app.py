@@ -59,6 +59,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     auth0_audience = os.environ.get("AUTH0_AUDIENCE", "")
     if auth0_domain and auth0_audience:
         configure_auth(Auth0Adapter(domain=auth0_domain, audience=auth0_audience))
+    elif os.getenv("APP_ENV") == "development":
+        from interactors.api.auth import require_auth
+        log.warning("AUTH0 not configured — auth disabled for local development")
+        app.dependency_overrides[require_auth] = lambda: None
     else:
         log.warning(
             "AUTH0_DOMAIN or AUTH0_AUDIENCE not set — "
