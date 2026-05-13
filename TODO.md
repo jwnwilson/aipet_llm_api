@@ -8,6 +8,7 @@
     - Validate export 
 3. Setup E2E Tests for all compute E2E to inference
 4. Setup tests with valid presaved model in S3 
+5. Fix all tests setup proper ci cd tests
 
 Setup plan and execute the following in parallel:
 1. Setup Authentication

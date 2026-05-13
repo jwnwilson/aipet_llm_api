@@ -169,7 +169,7 @@ class TestRunPodAdapterLogs:
         storage_mock = MagicMock()
         storage_mock.read_text.return_value = "epoch 1 loss=0.5\nepoch 2 loss=0.3\n"
 
-        with patch("adapters.compute.runpod.adapter.S3StorageAdapter", return_value=storage_mock):
+        with patch("adapters.storage.s3.S3StorageAdapter", return_value=storage_mock):
             result = adapter.logs("runpod/test-exp-aabbcc")
 
         assert result == "epoch 1 loss=0.5\nepoch 2 loss=0.3\n"
@@ -181,7 +181,7 @@ class TestRunPodAdapterLogs:
         storage_mock = MagicMock()
         storage_mock.read_text.return_value = ""
 
-        with patch("adapters.compute.runpod.adapter.S3StorageAdapter", return_value=storage_mock):
+        with patch("adapters.storage.s3.S3StorageAdapter", return_value=storage_mock):
             result = adapter.logs("runpod/test-exp-aabbcc")
 
         assert result == ""
