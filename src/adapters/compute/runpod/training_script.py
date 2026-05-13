@@ -72,7 +72,7 @@ def main() -> None:
     log.info("installing wheel  key=%s", whl_key)
     s3.download_file(BUCKET, whl_key, str(whl_path))
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-deps", "-q", str(whl_path)],
+        [sys.executable, "-m", "pip", "install", str(whl_path)],
         check=True,
     )
     put_progress(0.1, "wheel installed")

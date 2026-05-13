@@ -44,7 +44,7 @@ def main() -> None:
     print(f"[bootstrap] downloading wheel  key={whl_key}", flush=True)
     s3.download_file(BUCKET, whl_key, str(whl))
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-deps", "-q", str(whl)],
+        [sys.executable, "-m", "pip", "install", str(whl)],
         check=True,
     )
     print("[bootstrap] wheel installed — starting training script", flush=True)

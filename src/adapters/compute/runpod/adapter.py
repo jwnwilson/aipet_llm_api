@@ -17,7 +17,7 @@ from domain.models import RemoteTrainConfig
 from domain.ports import RemoteTrainingPort
 
 _DEFAULT_GPU = "NVIDIA GeForce RTX 3090"
-_DEFAULT_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel"
+_DEFAULT_IMAGE = "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel"
 
 # RunPod desiredStatus values → canonical states (EXITED resolved via S3 status.txt)
 _POD_STATUS_MAP: dict[str, str | None] = {
@@ -53,12 +53,17 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
         import boto3
         return boto3.client("s3")
 
+    def _configure_runpod(self):
+        import runpod
+        runpod.api_key = os.environ["RUNPOD_API_KEY"]
+        return runpod
+
     # ------------------------------------------------------------------
     # RemoteTrainingPort
     # ------------------------------------------------------------------
 
     def submit(self, config: RemoteTrainConfig) -> str:
-        import runpod
+        runpod = self._configure_runpod()
 
         run_id = f"runpod/{config.experiment_name}-{uuid.uuid4().hex[:6]}"
         staging = self._work_dir / config.experiment_name
@@ -115,7 +120,7 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
 
         # Fallback: check RunPod API via stored pod_id (detects OOM / preemption)
         try:
-            import runpod
+            runpod = self._configure_runpod()
 
             pod_id = (
                 self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/pod_id.txt")[
@@ -145,7 +150,7 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
 
     def logs(self, run_id: str) -> str:
         try:
-            import runpod
+            runpod = self._configure_runpod()
 
             pod_id = (
                 self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/pod_id.txt")[
@@ -195,7 +200,7 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
     def _terminate_pod(self, run_id: str) -> None:
         """Terminate the training pod for run_id (best-effort, swallows all errors)."""
         try:
-            import runpod
+            runpod = self._configure_runpod()
 
             pod_id = (
                 self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/pod_id.txt")[

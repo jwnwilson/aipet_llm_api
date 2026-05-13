@@ -31,6 +31,7 @@ def _make_adapter(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("AWS_S3_BUCKET", "test-bucket")
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "fake-key")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "fake-secret")
+    monkeypatch.setenv("RUNPOD_API_KEY", "fake-runpod-key")
 
     mock_s3 = MagicMock()
 
