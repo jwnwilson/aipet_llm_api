@@ -39,3 +39,14 @@ class S3StorageAdapter(StoragePort):
             self._s3.delete_object(Bucket=self._bucket, Key=key)
         except Exception:
             pass
+
+    def write_bytes(self, key: str, content: bytes) -> None:
+        """Write raw bytes to ``key`` in S3 (creates or overwrites)."""
+        self._s3.put_object(Bucket=self._bucket, Key=key, Body=content)
+
+    def read_text(self, key: str, *, encoding: str = "utf-8") -> str:
+        """Read ``key`` from S3 and decode; returns empty string if key is absent."""
+        try:
+            return self._s3.get_object(Bucket=self._bucket, Key=key)["Body"].read().decode(encoding)
+        except Exception:
+            return ""
