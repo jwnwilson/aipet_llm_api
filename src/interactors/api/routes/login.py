@@ -29,6 +29,10 @@ def login() -> RedirectResponse:
 
 
 @router.get("/callback")
+# IMPORTANT: This endpoint must be served over HTTPS in production.
+# The `code` query parameter arrives in the URL, which means it's visible in
+# browser history, server access logs, and Referer headers. HTTPS prevents
+# interception; HTTP exposes the code to network observers.
 def callback(code: str) -> PlainTextResponse:
     domain = os.environ["AUTH0_DOMAIN"]
     resp = httpx.post(
