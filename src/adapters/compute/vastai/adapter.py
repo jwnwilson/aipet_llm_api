@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -10,11 +11,13 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
+log = logging.getLogger(__name__)
+
 from domain.models import RemoteTrainConfig
 from domain.ports import RemoteTrainingPort
 
 _DEFAULT_GPU_QUERY = "num_gpus=1 gpu_name=RTX_3090 reliability>0.99"
-_DEFAULT_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel"
+_DEFAULT_IMAGE = "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel"
 
 # Vast.ai actual_status values → canonical states
 _INSTANCE_STATUS_MAP: dict[str, str | None] = {
@@ -61,8 +64,13 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
 
     def submit(self, config: RemoteTrainConfig) -> str:
         run_id = f"vastai/{config.experiment_name}-{uuid.uuid4().hex[:6]}"
+        log.info("vastai submit  run_id=%s  model=%s  epochs=%s", run_id, config.model, config.epochs)
+
         staging = self._work_dir / config.experiment_name
+        log.info("staging files to %s", staging)
         self._stage_files(config, staging)
+
+        log.info("uploading staged files to s3  bucket=%s  prefix=%s", self._bucket, run_id)
         self._upload_to_s3(staging, run_id, config)
 
         client = self._build_vastai_client()
@@ -85,6 +93,7 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
             },
         )
         instance_id = str(result.get("new_contract", result.get("id", "")))
+        log.info("vastai instance created  run_id=%s  instance_id=%s", run_id, instance_id)
         self._s3.put_object(
             Bucket=self._bucket,
             Key=f"{run_id}/instance_id.txt",
@@ -104,6 +113,7 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                 .strip()
             )
             if raw in ("pending", "running", "done", "failed"):
+                log.info("vastai status (s3)  run_id=%s  status=%s", run_id, raw)
                 if raw in ("done", "failed"):
                     self._destroy_instance(run_id)
                 return raw  # type: ignore[return-value]
@@ -124,6 +134,7 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
             instance = client.show_instance(id=instance_id)
             actual = instance.get("actual_status", "")
             mapped = _INSTANCE_STATUS_MAP.get(actual, "pending")
+            log.info("vastai status (api)  run_id=%s  actual=%s  mapped=%s", run_id, actual, mapped or "pending")
             return (mapped or "pending")  # type: ignore[return-value]
         except Exception:
             return "pending"
@@ -197,9 +208,11 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                 .decode()
                 .strip()
             )
+            log.info("vastai destroying instance  run_id=%s  instance_id=%s", run_id, instance_id)
             self._build_vastai_client().destroy_instance(id=instance_id)
-        except Exception:
-            pass
+            log.info("vastai instance destroyed  run_id=%s  instance_id=%s", run_id, instance_id)
+        except Exception as exc:
+            log.warning("vastai destroy failed (best-effort)  run_id=%s  error=%s", run_id, exc)
 
     def _create_instance(self, client, onstart_cmd: str, env: dict, max_retries: int = 3) -> dict:
         """Search for the cheapest matching offer and create an instance.
@@ -210,20 +223,30 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
         import requests
 
         query = os.getenv("VASTAI_GPU_QUERY", _DEFAULT_GPU_QUERY)
+        image = os.getenv("VASTAI_IMAGE", _DEFAULT_IMAGE)
+        disk = float(os.getenv("VASTAI_DISK_GB", "50"))
+        log.info("vastai searching offers  query=%r  image=%s  disk_gb=%s", query, image, disk)
+
         last_exc: Exception | None = None
         for attempt in range(max_retries):
             offers = client.search_offers(query=query, type="on-demand", limit=20)
             if not offers:
                 raise RuntimeError(f"No Vast.ai offers found for query: {query!r}")
             offer = min(offers, key=lambda o: float(o.get("dph_total", float("inf"))))
+            log.info(
+                "vastai selected offer  attempt=%d  offer_id=%s  gpu=%s  dph=$%.4f",
+                attempt, offer.get("id"), offer.get("gpu_name"), float(offer.get("dph_total", 0)),
+            )
             try:
-                return client.create_instance(
+                result = client.create_instance(
                     id=int(offer["id"]),
-                    image=os.getenv("VASTAI_IMAGE", _DEFAULT_IMAGE),
-                    disk=float(os.getenv("VASTAI_DISK_GB", "50")),
+                    image=image,
+                    disk=disk,
                     onstart_cmd=onstart_cmd,
                     env=env,
                 )
+                log.info("vastai create_instance succeeded  offer_id=%s", offer.get("id"))
+                return result
             except requests.exceptions.HTTPError as exc:
                 if exc.response is not None and exc.response.status_code == 400:
                     body = exc.response.text or ""
@@ -234,6 +257,7 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                             f"Add credits at https://vast.ai/console/billing/ and retry. "
                             f"API response: {body}"
                         ) from exc
+                    log.warning("vastai 400 on offer %s (stale?), retrying  body=%s", offer.get("id"), body[:200])
                     last_exc = exc
                     continue
                 raise
