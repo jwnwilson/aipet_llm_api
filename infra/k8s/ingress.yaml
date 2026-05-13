@@ -6,8 +6,8 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   rules:
-    # Replace with the public hostname or IP of your inlets VPS.
-    # To match all requests regardless of host (e.g. bare IP), remove the host: line.
+    # Replace with the public hostname of your inlets exit node or VPS.
+    # To accept any hostname (e.g. bare IP access), remove the `host:` line entirely.
     - host: "your-vps-hostname-or-domain.example.com"
       http:
         paths:
