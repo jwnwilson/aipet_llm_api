@@ -9,6 +9,10 @@ import pytest
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from adapters.compute.ssh import SshTrainingAdapter
+
+_parse_valid_pct = SshTrainingAdapter._parse_valid_pct
+
 from interactors.temporal.activities import (
     CheckpointPath,
     DatasetConfig,
@@ -18,7 +22,6 @@ from interactors.temporal.activities import (
     ExportConfig,
     GGUFPath,
     TrainConfig,
-    _parse_valid_pct,
     configure_model_store,
     configure_run_store,
     configure_storage,
