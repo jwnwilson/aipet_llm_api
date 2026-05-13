@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-
-import llama_cpp
+from typing import TYPE_CHECKING, Any
 
 from domain.actions import Action
 from domain.models import InferenceRequest, InferenceResponse
 from domain.ports import InferencePort
 from adapters.prompt import build_prompt, parse_response
+
+if TYPE_CHECKING:
+    import llama_cpp as _llama_cpp
 
 log = logging.getLogger(__name__)
 
@@ -28,12 +29,6 @@ _RESPONSE_GBNF = (
     'number ::= [0-9]+ ("." [0-9]+)?\n'
 )
 
-try:
-    _GRAMMAR: llama_cpp.LlamaGrammar | None = llama_cpp.LlamaGrammar.from_string(_RESPONSE_GBNF)
-except Exception as _grammar_exc:
-    log.warning("Grammar-constrained sampling unavailable: %s", _grammar_exc)
-    _GRAMMAR = None
-
 # Actions that require a target object and the scene types they must come from.
 _ACTION_TARGET_TYPES: dict[Action, set[str]] = {
     Action.EAT: {"bowl"},
@@ -46,6 +41,17 @@ _ACTION_TARGET_TYPES: dict[Action, set[str]] = {
 }
 
 
+def _import_llama_cpp() -> Any:
+    try:
+        import llama_cpp
+        return llama_cpp
+    except ImportError as exc:
+        raise ImportError(
+            "llama-cpp-python is not installed. "
+            "Install it with: pip install 'aipet-llm-api[inference]'"
+        ) from exc
+
+
 class LlamaCppInferenceAdapter(InferencePort):
     """InferencePort implementation backed by a GGUF-quantised model via llama-cpp-python.
 
@@ -56,14 +62,27 @@ class LlamaCppInferenceAdapter(InferencePort):
     def __init__(self, model_path: str, context_size: int = 2048) -> None:
         self._model_path = model_path
         self._context_size = context_size
-        self._llm: llama_cpp.Llama | None = None
+        self._llm: Any = None
+        self._grammar: Any = None
+        self._llama_cpp: Any = None
+
+    def _get_llama_cpp(self) -> Any:
+        if self._llama_cpp is None:
+            self._llama_cpp = _import_llama_cpp()
+            try:
+                self._grammar = self._llama_cpp.LlamaGrammar.from_string(_RESPONSE_GBNF)
+            except Exception as exc:
+                log.warning("Grammar-constrained sampling unavailable: %s", exc)
+                self._grammar = None
+        return self._llama_cpp
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _load_model(self) -> llama_cpp.Llama:
+    def _load_model(self) -> Any:
         """Instantiate and return the Llama model (called once, lazily)."""
+        llama_cpp = self._get_llama_cpp()
         log.info("Loading GGUF model from %s", self._model_path)
         return llama_cpp.Llama(
             model_path=self._model_path,
@@ -71,7 +90,7 @@ class LlamaCppInferenceAdapter(InferencePort):
             verbose=False,
         )
 
-    def _get_llm(self) -> llama_cpp.Llama:
+    def _get_llm(self) -> Any:
         if self._llm is None:
             self._llm = self._load_model()
         return self._llm
@@ -121,7 +140,7 @@ class LlamaCppInferenceAdapter(InferencePort):
                 max_tokens=128,
                 temperature=0.1,
                 stop=["```"],
-                grammar=_GRAMMAR,
+                grammar=self._grammar,
             )
             log.info(f"LLM Response: {completion}")
             raw_text: str = completion["choices"][0]["text"]
