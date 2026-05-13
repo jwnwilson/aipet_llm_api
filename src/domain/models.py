@@ -98,3 +98,7 @@ class RunRecord(RunConfig):
     updated_at: datetime
 
 
+class UserContext(BaseModel):
+    user_id: str
+    email: str | None = None
+

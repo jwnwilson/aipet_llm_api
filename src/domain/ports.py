@@ -13,6 +13,7 @@ from domain.models import (
     RunStatus,
     TrainingModel,
     TrainingModelConfig,
+    UserContext,
 )
 
 TDomain = TypeVar("TDomain")
@@ -178,3 +179,11 @@ class RunStorePort(StorePort["RunRecord", "RunConfig"]):
     @abstractmethod
     def update_progress(self, run_id: str, progress: float, detail: str = "") -> RunRecord | None:
         """Persist training/evaluation progress fraction and detail string."""
+
+
+class AuthPort(ABC):
+    """Abstract interface for validating bearer tokens."""
+
+    @abstractmethod
+    def authenticate(self, token: str) -> UserContext | None:
+        """Validate the JWT and return a UserContext, or None if invalid/expired."""
