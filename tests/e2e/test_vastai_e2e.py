@@ -87,8 +87,9 @@ _ACTIVITIES = [
 async def _run_pipeline(tmp_path: Path, scenario: str, task_queue: str) -> PipelineResult:
     """Rent a real Vast.ai instance and run the full Temporal pipeline.
 
-    Vast.ai does not implement remote eval, so the evaluate activity falls back
-    to downloading the checkpoint from S3 and running local HF eval.
+    Evaluation runs on a second Vast.ai GPU instance (evaluation_script.py) which
+    writes eval_result.json to S3.  The adapter polls until the instance completes
+    and then destroys it.
     """
     data_dir = tmp_path / "data"
     checkpoint_dir = tmp_path / "checkpoint"

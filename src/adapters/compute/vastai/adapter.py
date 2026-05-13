@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import time
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -161,6 +162,112 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
             return str(result) if result else ""
         except Exception:
             return ""
+
+    def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:
+        # Upload eval data if it exists locally and isn't already on S3.
+        if eval_data:
+            local_eval = Path(eval_data)
+            if local_eval.exists():
+                s3_key = f"{run_id}/data/{local_eval.name}"
+                try:
+                    self._s3.head_object(Bucket=self._bucket, Key=s3_key)
+                except Exception:
+                    self._s3.upload_file(str(local_eval), self._bucket, s3_key)
+
+        client = self._build_vastai_client()
+        query = os.getenv("VASTAI_GPU_QUERY", _DEFAULT_GPU_QUERY)
+        offers = client.search_offers(query=query, type="on-demand", limit=20)
+        if not offers:
+            raise RuntimeError(f"No Vast.ai offers found for eval query: {query!r}")
+        offer = min(offers, key=lambda o: float(o.get("dph_total", float("inf"))))
+
+        result = client.create_instance(
+            id=int(offer["id"]),
+            image=os.getenv("VASTAI_IMAGE", _DEFAULT_IMAGE),
+            disk=float(os.getenv("VASTAI_DISK_GB", "50")),
+            onstart_cmd=(
+                "bash -c 'pip install -q boto3 && "
+                "python -m adapters.compute.vastai.evaluation_script'"
+            ),
+            env={
+                "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
+                "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
+                "AWS_DEFAULT_REGION": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+                "AWS_S3_BUCKET": self._bucket,
+                "RUN_ID": run_id,
+            },
+        )
+        eval_instance_id = str(result.get("new_contract", result.get("id", "")))
+        self._s3.put_object(
+            Bucket=self._bucket,
+            Key=f"{run_id}/eval_instance_id.txt",
+            Body=eval_instance_id.encode(),
+        )
+
+        try:
+            while True:
+                # Primary: S3 eval_status.txt written by the evaluation script
+                eval_status = None
+                try:
+                    eval_status = (
+                        self._s3.get_object(
+                            Bucket=self._bucket, Key=f"{run_id}/eval_status.txt"
+                        )["Body"]
+                        .read()
+                        .decode()
+                        .strip()
+                    )
+                except Exception:
+                    pass
+
+                if eval_status == "done":
+                    break
+                if eval_status == "failed":
+                    raise RuntimeError(f"Remote evaluation failed (run_id={run_id})")
+
+                # Fallback: check Vast.ai API for crash / eviction
+                try:
+                    instance = client.show_instance(id=int(eval_instance_id))
+                    actual = instance.get("actual_status", "")
+                    if actual in ("exited", "stopped"):
+                        # One final check in case the instance wrote status before stopping
+                        try:
+                            final = (
+                                self._s3.get_object(
+                                    Bucket=self._bucket, Key=f"{run_id}/eval_status.txt"
+                                )["Body"]
+                                .read()
+                                .decode()
+                                .strip()
+                            )
+                            if final == "done":
+                                break
+                        except Exception:
+                            pass
+                        raise RuntimeError(
+                            f"Eval instance exited without writing results (run_id={run_id})"
+                        )
+                except RuntimeError:
+                    raise
+                except Exception:
+                    pass
+
+                time.sleep(30)
+        finally:
+            try:
+                client.destroy_instance(id=int(eval_instance_id))
+            except Exception:
+                pass
+
+        raw = (
+            self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/eval_result.json")[
+                "Body"
+            ]
+            .read()
+            .decode()
+        )
+        data = json.loads(raw)
+        return float(data["valid_pct"]), bool(data["passed"])
 
     def progress(self, run_id: str) -> tuple[float, str]:
         try:
