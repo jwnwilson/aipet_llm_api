@@ -1,6 +1,8 @@
 #TODO
 
 1. Setup working vastai with end to end test
+    - Training working
+    - Validate export 
 2. Setup working runpod with end to end test
     - Training working
     - Validate export 
@@ -8,7 +10,9 @@
 
 Setup plan and execute the following in parallel:
 1. Setup Authentication
+    - Validate with tests
 2. Deploy this service to kubernetes cluster
+    - Validate with tests
 3. Make successful models available to test via the API
 
 Product ideas
