@@ -89,17 +89,7 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                 '" && '
                 "python /tmp/aipet_bootstrap.py"
             ),
-            env={
-                "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
-                "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
-                "AWS_DEFAULT_REGION": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
-                "AWS_S3_BUCKET": self._bucket,
-                "RUN_ID": run_id,
-                "MODEL": config.model,
-                "EPOCHS": str(config.epochs),
-                "PATIENCE": str(config.patience),
-                "WARMUP_RATIO": str(config.warmup_ratio),
-            },
+            env=self._build_instance_env(run_id, config),
         )
         instance_id = str(result.get("new_contract", result.get("id", "")))
         log.info("vastai instance created  run_id=%s  instance_id=%s", run_id, instance_id)
@@ -224,6 +214,24 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _build_instance_env(self, run_id: str, config) -> dict:
+        env = {
+            "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
+            "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
+            "AWS_DEFAULT_REGION": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+            "AWS_S3_BUCKET": self._bucket,
+            "RUN_ID": run_id,
+            "MODEL": config.model,
+            "EPOCHS": str(config.epochs),
+            "PATIENCE": str(config.patience),
+            "WARMUP_RATIO": str(config.warmup_ratio),
+        }
+        # Temporary credentials (SSO, assume-role) require a session token.
+        # Without it the key+secret pair is rejected by AWS with 403.
+        if tok := os.environ.get("AWS_SESSION_TOKEN"):
+            env["AWS_SESSION_TOKEN"] = tok
+        return env
 
     def _destroy_instance(self, run_id: str) -> None:
         """Destroy the training instance for run_id (best-effort, swallows all errors)."""
