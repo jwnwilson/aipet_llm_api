@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parents[2] / ".env")
 
 _LLAMA_CPP_DIR = Path(__file__).parents[2] / "llama.cpp"
 

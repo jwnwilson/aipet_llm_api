@@ -67,17 +67,8 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
         self._upload_to_s3(staging, run_id, config)
 
         client = self._build_vastai_client()
-
-        query = os.getenv("VASTAI_GPU_QUERY", _DEFAULT_GPU_QUERY)
-        offers = client.search_offers(query=query, type="on-demand", limit=20)
-        if not offers:
-            raise RuntimeError(f"No Vast.ai offers found for query: {query!r}")
-        offer = min(offers, key=lambda o: float(o.get("dph_total", float("inf"))))
-
-        result = client.create_instance(
-            id=int(offer["id"]),
-            image=os.getenv("VASTAI_IMAGE", _DEFAULT_IMAGE),
-            disk=float(os.getenv("VASTAI_DISK_GB", "50")),
+        result = self._create_instance(
+            client,
             onstart_cmd=(
                 "bash -c 'pip install -q boto3 && "
                 "python -m adapters.compute.vastai.training_script'"
@@ -175,16 +166,8 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                     self._s3.upload_file(str(local_eval), self._bucket, s3_key)
 
         client = self._build_vastai_client()
-        query = os.getenv("VASTAI_GPU_QUERY", _DEFAULT_GPU_QUERY)
-        offers = client.search_offers(query=query, type="on-demand", limit=20)
-        if not offers:
-            raise RuntimeError(f"No Vast.ai offers found for eval query: {query!r}")
-        offer = min(offers, key=lambda o: float(o.get("dph_total", float("inf"))))
-
-        result = client.create_instance(
-            id=int(offer["id"]),
-            image=os.getenv("VASTAI_IMAGE", _DEFAULT_IMAGE),
-            disk=float(os.getenv("VASTAI_DISK_GB", "50")),
+        result = self._create_instance(
+            client,
             onstart_cmd=(
                 "bash -c 'pip install -q boto3 && "
                 "python -m adapters.compute.vastai.evaluation_script'"
@@ -286,6 +269,39 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _create_instance(self, client, onstart_cmd: str, env: dict, max_retries: int = 3) -> dict:
+        """Search for the cheapest matching offer and create an instance.
+
+        Retries up to max_retries times if a 400 is returned, which typically
+        means the selected offer was taken between search and create.
+        """
+        import requests
+
+        query = os.getenv("VASTAI_GPU_QUERY", _DEFAULT_GPU_QUERY)
+        last_exc: Exception | None = None
+        for attempt in range(max_retries):
+            offers = client.search_offers(query=query, type="on-demand", limit=20)
+            if not offers:
+                raise RuntimeError(f"No Vast.ai offers found for query: {query!r}")
+            offer = min(offers, key=lambda o: float(o.get("dph_total", float("inf"))))
+            try:
+                return client.create_instance(
+                    id=int(offer["id"]),
+                    image=os.getenv("VASTAI_IMAGE", _DEFAULT_IMAGE),
+                    disk=float(os.getenv("VASTAI_DISK_GB", "50")),
+                    onstart_cmd=onstart_cmd,
+                    env=env,
+                )
+            except requests.exceptions.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 400:
+                    last_exc = exc
+                    continue
+                raise
+        raise RuntimeError(
+            f"Failed to create Vast.ai instance after {max_retries} attempts "
+            f"(offer kept disappearing): {last_exc}"
+        )
 
     def _stage_files(self, config: RemoteTrainConfig, staging: Path) -> None:
         if staging.exists():
