@@ -620,13 +620,14 @@ class TestColabAdapterSubmit:
         assert "{{folder_id}}" not in content, "{{folder_id}} placeholder was not replaced"
         assert "'epochs': 5" in content
 
-    def test_prints_colab_url_with_drive_link(self, tmp_path, monkeypatch, capsys):
+    def test_prints_colab_url_with_drive_link(self, tmp_path, monkeypatch, caplog):
+        import logging
         adapter = self._make_adapter(tmp_path, monkeypatch)
         self._patch_io(monkeypatch)
-        adapter.submit(self._data_config(tmp_path))
+        with caplog.at_level(logging.INFO):
+            adapter.submit(self._data_config(tmp_path))
 
-        captured = capsys.readouterr()
-        assert "colab.research.google.com/drive/" in captured.out
+        assert "colab.research.google.com/drive/" in caplog.text
 
     def test_uploads_notebook_ipynb_to_drive(self, tmp_path, monkeypatch):
         adapter = self._make_adapter(tmp_path, monkeypatch)

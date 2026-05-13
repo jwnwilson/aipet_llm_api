@@ -31,11 +31,9 @@ def _dry_run_patches(eval_passes: bool = True):
 
     def fake_evaluate(path, infer_fn):
         if eval_passes:
-            print("Valid: 190/200 (95.0%)  [PASS]")
-            return 0
+            return (0, 0.95)
         else:
-            print("Valid: 150/200 (75.0%)  [FAIL]")
-            return 1
+            return (1, 0.75)
 
     return [
         patch("domain.train.dataset.generate", return_value=True),

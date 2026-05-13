@@ -116,7 +116,7 @@ async def test_evaluate_activity_delegates_to_domain():
     with (
         patch("domain.train.evaluate.load_hf_pipeline", return_value=mock_pipe) as mock_load,
         patch("domain.train.evaluate.infer_hf", return_value='{"action": "IDLE"}'),
-        patch("domain.train.evaluate.evaluate", return_value=0) as mock_eval,
+        patch("domain.train.evaluate.evaluate", return_value=(0, 0.95)) as mock_eval,
     ):
         result = await ENV.run(evaluate_activity, EvalConfig(checkpoint="models/checkpoints", eval_data="data/eval.jsonl"))
 
@@ -130,19 +130,18 @@ async def test_evaluate_activity_fail_result_when_exit_code_nonzero():
     with (
         patch("domain.train.evaluate.load_hf_pipeline", return_value=MagicMock()),
         patch("domain.train.evaluate.infer_hf", return_value=""),
-        patch("domain.train.evaluate.evaluate", return_value=1),
+        patch("domain.train.evaluate.evaluate", return_value=(1, 0.75)),
     ):
         result = await ENV.run(evaluate_activity, EvalConfig(checkpoint="models/checkpoints"))
 
     assert result.passed is False
-    assert result.valid_pct == 0.0
+    assert result.valid_pct == pytest.approx(0.75)
 
 
 @pytest.mark.asyncio
-async def test_evaluate_activity_parses_valid_pct_from_stdout():
+async def test_evaluate_activity_extracts_valid_pct_from_return_value():
     def fake_evaluate(path, infer_fn):
-        print("Valid: 190/200 (95.0%)  [PASS]")
-        return 0
+        return (0, 0.95)
 
     with (
         patch("domain.train.evaluate.load_hf_pipeline", return_value=MagicMock()),
@@ -152,7 +151,7 @@ async def test_evaluate_activity_parses_valid_pct_from_stdout():
         result = await ENV.run(evaluate_activity, EvalConfig(checkpoint="models/checkpoints"))
 
     assert result.passed is True
-    assert abs(result.valid_pct - 0.95) < 1e-6
+    assert result.valid_pct == pytest.approx(0.95)
 
 
 @pytest.mark.asyncio

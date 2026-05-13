@@ -162,7 +162,7 @@ class TestVastAiAdapterDownload:
         dest = tmp_path / "output"
         result = adapter.download("vastai/test-exp-aabbcc", dest)
 
-        assert Path(result) == dest
+        assert Path(result) == dest / "checkpoints"
         assert (dest / "checkpoints" / "config.json").exists()
         assert not (dest / "checkpoint.tar.gz").exists()
 
@@ -193,12 +193,14 @@ class TestVastAiAdapterLogs:
         adapter, s3 = _make_adapter(monkeypatch, tmp_path)
         s3.get_object.return_value = {"Body": MagicMock(read=lambda: b"12345")}
         mock_client = MagicMock()
-        mock_client.logs.return_value = "training step 1/10\n"
+        mock_client.show_instance.return_value = {"actual_status": "running"}
+        mock_client.logs.return_value = "training step 1/10"
         adapter._build_vastai_client = lambda: mock_client
 
         result = adapter.logs("vastai/test-exp-aabbcc")
 
-        assert result == "training step 1/10\n"
+        assert result.startswith("[vastai] instance_id=12345  actual_status=running")
+        assert "training step 1/10" in result
         mock_client.logs.assert_called_once_with(instance_id=12345, tail="200")
 
     def test_returns_empty_string_on_error(self, monkeypatch, tmp_path):

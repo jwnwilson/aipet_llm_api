@@ -42,8 +42,7 @@ _ACTIVITIES = [
 
 
 def _fake_evaluate(eval_data, infer_fn):
-    print("Valid: 190/200 (95.0%)  [PASS]")
-    return 0
+    return (0, 0.95)
 
 
 @pytest.mark.asyncio

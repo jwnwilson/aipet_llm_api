@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> None:
         infer_fn = lambda prompt: infer_hf(pipe, prompt)  # noqa: E731
 
     # Always run the schema-validity evaluation.
-    exit_code = evaluate(eval_data, infer_fn)
+    exit_code, _valid_pct = evaluate(eval_data, infer_fn)
 
     # Optionally run the full quality report.
     if args.quality:

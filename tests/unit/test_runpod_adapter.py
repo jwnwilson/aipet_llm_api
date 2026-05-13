@@ -143,7 +143,7 @@ class TestRunPodAdapterDownload:
         dest = tmp_path / "output"
         result = adapter.download("runpod/test-exp-aabbcc", dest)
 
-        assert Path(result) == dest
+        assert Path(result) == dest / "checkpoints"
         assert (dest / "checkpoints" / "config.json").exists()
         assert not (dest / "checkpoint.tar.gz").exists()
 
