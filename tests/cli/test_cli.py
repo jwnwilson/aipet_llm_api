@@ -338,3 +338,77 @@ class TestTriggerTrainingCli:
 
         assert exc_info.value.code == 1
         mock_client.start_workflow.assert_not_called()
+
+    def test_main_with_model_id_creates_run_record(self, monkeypatch, tmp_path):
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from adapters.database import init_db
+        from adapters.database.model_store import SQLAlchemyModelStore
+        from adapters.database.run_store import SQLAlchemyRunStore
+        from domain.models import TrainingModelConfig
+        from interactors.cli import trigger_training
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        init_db(engine)
+        model = SQLAlchemyModelStore(engine).create(TrainingModelConfig(name="main-test-model"))
+        run_store = SQLAlchemyRunStore(engine)
+
+        mock_handle = MagicMock()
+        mock_handle.id = "wf-main-test"
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=mock_handle)
+
+        monkeypatch.setattr("adapters.database.engine.make_engine", lambda: engine)
+        monkeypatch.setattr("temporalio.client.Client.connect", AsyncMock(return_value=mock_client))
+        monkeypatch.chdir(tmp_path)
+
+        trigger_training.main([
+            "--experiment-name", "main-test",
+            "--model-id", model.id,
+        ])
+
+        runs = run_store.list(model_id=model.id)
+        assert len(runs) == 1
+        assert runs[0].model_id == model.id
+        assert runs[0].status.value == "pending"
+
+
+# ---------------------------------------------------------------------------
+# seed_models CLI
+# ---------------------------------------------------------------------------
+
+class TestSeedModelsCli:
+    def test_creates_default_models(self, tmp_path, monkeypatch):
+        from sqlalchemy import create_engine
+        from adapters.database.model_store import SQLAlchemyModelStore
+
+        db_path = tmp_path / "seed.db"
+        monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+
+        from interactors.cli import seed_models
+        seed_models.main()
+
+        engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+        names = {m.name for m in SQLAlchemyModelStore(engine).list()}
+        assert "smollm2-360m-local" in names
+        assert "smollm2-360m-kaggle" in names
+        assert "smollm2-1.7b-runpod" in names
+        assert len(names) == 3
+
+    def test_is_idempotent(self, tmp_path, monkeypatch):
+        from sqlalchemy import create_engine
+        from adapters.database.model_store import SQLAlchemyModelStore
+
+        db_path = tmp_path / "seed.db"
+        monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+
+        from interactors.cli import seed_models
+        seed_models.main()
+        seed_models.main()
+
+        engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+        assert len(SQLAlchemyModelStore(engine).list()) == 3

@@ -103,6 +103,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             [_kaggle_bin(), "kernels", "status", run_id],
             capture_output=True,
             text=True,
+            timeout=30,
             check=True,
         )
         output = result.stdout.lower()
@@ -119,6 +120,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             [_kaggle_bin(), "kernels", "status", run_id],
             capture_output=True,
             text=True,
+            timeout=30,
         )
         return result.stdout.strip()
 
