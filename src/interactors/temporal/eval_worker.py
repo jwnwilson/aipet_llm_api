@@ -1,7 +1,9 @@
-"""Temporal orchestration worker — handles workflows and lightweight activities only.
+"""Temporal eval worker — handles evaluation and GGUF export.
 
-Heavy compute activities (training, eval, export) are handled by training_worker.py
-and eval_worker.py to prevent workflow task starvation under load.
+Run alongside worker.py (orchestration) and training_worker.py. All three poll
+the same task queue; Temporal routes each activity to whichever worker registered it.
+Can be deployed on the target RPi or a separate inference machine (uses llama-cpp,
+not training libs).
 """
 
 from __future__ import annotations
@@ -23,11 +25,9 @@ from interactors.temporal.activities import (
     configure_model_store,
     configure_run_store,
     configure_storage,
-    finalise_run_activity,
-    save_gguf_path_activity,
-    update_run_status_activity,
+    evaluate_activity,
+    export_activity,
 )
-from interactors.temporal.workflows import EvaluateWorkflow, ExportWorkflow, TrainingPipelineWorkflow
 
 TASK_QUEUE = "aipet-training"
 
@@ -55,15 +55,14 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        workflows=[TrainingPipelineWorkflow, EvaluateWorkflow, ExportWorkflow],
+        workflows=[],
         activities=[
-            finalise_run_activity,
-            save_gguf_path_activity,
-            update_run_status_activity,
+            evaluate_activity,
+            export_activity,
         ],
     )
 
-    print(f"Orchestration worker started — task_queue={TASK_QUEUE}  host={temporal_host}")
+    print(f"Eval worker started — task_queue={TASK_QUEUE}  host={temporal_host}")
     await worker.run()
 
 

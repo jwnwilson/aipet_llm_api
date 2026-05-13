@@ -1,9 +1,7 @@
 #TODO
 
 1. Verify new large model works well with the AIPET game
-    - Setup E2E test to verify the training pipeline creates models the API can load and use.
-    - Setup tests to verify 
-    - Setup export job on kaggle to export using CUDA
+    - Fix large model timeout
 2. Validate llm ui works with new API
     - This looks broken, add integration tests to ensure this doesn't break in future
     - Add ability to export / evaluate / set current model for the api in the ui

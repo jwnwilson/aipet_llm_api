@@ -276,16 +276,25 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
 
     loop = asyncio.get_event_loop()
 
-    # Run submit in an executor — it calls subprocess + time.sleep (blocks event loop).
-    heartbeat_task = asyncio.ensure_future(_heartbeat_loop("train_submit"))
-    try:
-        run_id = await loop.run_in_executor(None, lambda: adapter.submit(remote_config))
-    except Exception as exc:
-        raise ApplicationError(f"Remote submit failed: {exc}") from exc
-    finally:
-        heartbeat_task.cancel()
-
-    activity.logger.info("Remote job submitted: adapter=%s run_id=%s", type(adapter).__name__, run_id)
+    # Resume polling an existing job if this is a retry after a worker restart.
+    prior = activity.info().heartbeat_details
+    if prior and isinstance(prior[0], dict) and prior[0].get("job_id"):
+        run_id = prior[0]["job_id"]
+        activity.logger.info(
+            "Resuming remote job poll (adapter=%s run_id=%s)", type(adapter).__name__, run_id
+        )
+    else:
+        # Run submit in an executor — it calls subprocess + time.sleep (blocks event loop).
+        heartbeat_task = asyncio.ensure_future(_heartbeat_loop("train_submit"))
+        try:
+            run_id = await loop.run_in_executor(None, lambda: adapter.submit(remote_config))
+        except Exception as exc:
+            raise ApplicationError(f"Remote submit failed: {exc}") from exc
+        finally:
+            heartbeat_task.cancel()
+        activity.logger.info("Remote job submitted: adapter=%s run_id=%s", type(adapter).__name__, run_id)
+        # Store job_id immediately so retries can resume polling without resubmitting.
+        activity.heartbeat({"job_id": run_id, "status": "submitted", "elapsed_s": 0})
 
     started_at = time.time()
     while True:
@@ -309,7 +318,7 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
                 type(adapter).__name__, run_id, status, elapsed_s,
             )
 
-        activity.heartbeat({"status": status, "elapsed_s": elapsed_s, "logs": logs})
+        activity.heartbeat({"job_id": run_id, "status": status, "elapsed_s": elapsed_s, "logs": logs})
 
         if config.db_run_id:
             try:
