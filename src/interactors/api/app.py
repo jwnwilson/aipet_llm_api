@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 def _make_storage_adapter():
-    """Return S3StorageAdapter when AWS_S3_BUCKET is set, otherwise LocalStorageAdapter."""
     if os.getenv("AWS_S3_BUCKET"):
         from adapters.storage.s3 import S3StorageAdapter
         return S3StorageAdapter()
@@ -25,6 +24,7 @@ def _make_storage_adapter():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    from adapters.auth.auth0 import Auth0Adapter
     from adapters.database import init_db, make_engine
     from adapters.database.model_store import SQLAlchemyModelStore
     from adapters.database.run_store import SQLAlchemyRunStore
@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from interactors.api.deps import (
         clear_adapter,
         configure,
+        configure_auth,
         configure_model_store,
         configure_run_store,
     )
@@ -52,6 +53,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     storage = _make_storage_adapter()
     configure_storage(storage)
+
+    auth0_domain = os.environ.get("AUTH0_DOMAIN", "")
+    auth0_audience = os.environ.get("AUTH0_AUDIENCE", "")
+    if auth0_domain and auth0_audience:
+        configure_auth(Auth0Adapter(domain=auth0_domain, audience=auth0_audience))
+    else:
+        logger.warning(
+            "AUTH0_DOMAIN or AUTH0_AUDIENCE not set — "
+            "protected endpoints will return 500 until configured"
+        )
 
     active = store.active()
     if active and active.gguf_path:
@@ -79,19 +90,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 from interactors.api.routes.inference import router as inference_router  # noqa: E402
+from interactors.api.routes.login import router as login_router  # noqa: E402
 from interactors.api.routes.models import router as models_router  # noqa: E402
 from interactors.api.routes.runs import router as runs_router  # noqa: E402
 
 app = FastAPI(title="aipet-llm inference service", lifespan=lifespan)
 
+_cors_raw = os.getenv("CORS_ORIGINS", "")
+if os.getenv("APP_ENV") == "development":
+    _cors_origins: list[str] = ["*"]
+elif _cors_raw:
+    _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+else:
+    _cors_origins = []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(inference_router)
 app.include_router(models_router)
 app.include_router(runs_router)
+app.include_router(login_router)
