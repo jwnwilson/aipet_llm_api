@@ -18,7 +18,7 @@ from domain.models import RemoteTrainConfig
 from domain.ports import RemoteTrainingPort
 
 _DEFAULT_GPU = "NVIDIA GeForce RTX 3090"
-_DEFAULT_IMAGE = "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel"
+_DEFAULT_IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel"
 
 # Fetcher script: downloads bootstrap.py from S3 and exec()s it.
 # Base64-encoded because RunPod's SDK embeds docker_args directly into a

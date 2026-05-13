@@ -52,31 +52,6 @@ def main() -> None:
     put_status("running")
     put_progress(0.0, "starting")
 
-    # Download and install project wheel
-    whl_prefix = f"{RUN_ID}/"
-    paginator = s3.get_paginator("list_objects_v2")
-    whl_key = None
-    for page in paginator.paginate(Bucket=BUCKET, Prefix=whl_prefix):
-        for obj in page.get("Contents", []):
-            if obj["Key"].endswith(".whl"):
-                whl_key = obj["Key"]
-                break
-        if whl_key:
-            break
-
-    if not whl_key:
-        put_status("failed")
-        sys.exit("No .whl found in S3 prefix — re-run submit to rebuild.")
-
-    whl_path = Path("/tmp") / whl_key.split("/")[-1]
-    log.info("installing wheel  key=%s", whl_key)
-    s3.download_file(BUCKET, whl_key, str(whl_path))
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", str(whl_path)],
-        check=True,
-    )
-    put_progress(0.1, "wheel installed")
-
     # Download training data
     data_dir = Path("data")
     log.info("downloading training data  prefix=%s/data/", RUN_ID)
