@@ -295,16 +295,12 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
         elapsed_s = int(time.time() - started_at)
         logs = await loop.run_in_executor(None, lambda: adapter.logs(run_id))
 
+        activity.logger.info(
+            "Remote status: adapter=%s run_id=%s status=%s elapsed=%ds",
+            type(adapter).__name__, run_id, status, elapsed_s,
+        )
         if logs:
-            activity.logger.info(
-                "Training progress [%s] elapsed=%ds:\n%s",
-                type(adapter).__name__, elapsed_s, logs,
-            )
-        else:
-            activity.logger.info(
-                "Remote status: adapter=%s run_id=%s status=%s elapsed=%ds",
-                type(adapter).__name__, run_id, status, elapsed_s,
-            )
+            activity.logger.info("Instance output:\n%s", logs)
 
         activity.heartbeat({"status": status, "elapsed_s": elapsed_s, "logs": logs})
 

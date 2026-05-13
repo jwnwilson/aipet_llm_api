@@ -117,7 +117,7 @@ async def _run_pipeline(tmp_path: Path, scenario: str, task_queue: str) -> Pipel
     t_start = time.monotonic()
     log.info("[%s] renting Vast.ai instance  model=%s", scenario, TINY_MODEL)
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,

@@ -116,9 +116,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--remote-backend",
         dest="remote_backend",
-        choices=["local", "kaggle", "ssh", "colab"],
+        choices=["local", "kaggle", "ssh", "colab", "runpod", "vastai"],
         default="local",
-        help="Where to run fine-tuning: local machine, Kaggle GPU, SSH remote host, or Google Colab",
+        help="Where to run fine-tuning: local machine, Kaggle GPU, SSH remote host, Google Colab, RunPod, or Vast.ai",
     )
     parser.add_argument(
         "--model",

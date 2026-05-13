@@ -77,8 +77,17 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
         result = self._create_instance(
             client,
             onstart_cmd=(
-                "bash -c 'pip install -q boto3 && "
-                "python -m adapters.compute.vastai.training_script'"
+                "pip install -q boto3 && "
+                # Download the bootstrap script from S3 (single-quotes inside so
+                # the outer double-quote wrapping by VastAI doesn't conflict).
+                'python -c "'
+                "import boto3,os;"
+                "boto3.client('s3').download_file("
+                "os.environ['AWS_S3_BUCKET'],"
+                "os.environ['RUN_ID']+'/bootstrap.py',"
+                "'/tmp/aipet_bootstrap.py')"
+                '" && '
+                "python /tmp/aipet_bootstrap.py"
             ),
             env={
                 "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
@@ -161,6 +170,16 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                 .strip()
             )
             client = self._build_vastai_client()
+
+            actual_status = "unknown"
+            try:
+                instance = client.show_instance(id=instance_id)
+                actual_status = instance.get("actual_status", "unknown")
+            except Exception:
+                pass
+
+            header = f"[vastai] instance_id={instance_id}  actual_status={actual_status}"
+
             result = client.logs(instance_id=instance_id, tail="200")
             raw = str(result) if result else ""
             # Filter VastAI SSH relay noise — port collisions on their shared relay
@@ -170,7 +189,8 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                 if "remote port forwarding failed" not in ln
                 and "Permanently added" not in ln
             ]
-            return "\n".join(lines)
+            body = "\n".join(lines)
+            return f"{header}\n{body}" if body else header
         except Exception:
             return ""
 
@@ -285,6 +305,9 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
             check=True,
         )
 
+        # Copy the standalone bootstrap script (no project-wheel dependency).
+        shutil.copy2(Path(__file__).parent / "bootstrap.py", staging / "bootstrap.py")
+
         train_data = Path(config.train_data)
         if not train_data.is_absolute():
             train_data = self._project_root / train_data
@@ -301,6 +324,8 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                 key = f"{run_id}/{path.name}"
             elif path.suffix == ".jsonl":
                 key = f"{run_id}/data/{path.name}"
+            elif path.name == "bootstrap.py":
+                key = f"{run_id}/bootstrap.py"
             else:
                 continue
             self._s3.upload_file(str(path), self._bucket, key)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -9,6 +10,8 @@ import tarfile
 import uuid
 from pathlib import Path
 from typing import Literal
+
+log = logging.getLogger(__name__)
 
 from domain.models import RemoteTrainConfig
 from domain.ports import RemoteTrainingPort
@@ -103,6 +106,9 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
                 .strip()
             )
             if raw in ("pending", "running", "done", "failed"):
+                log.info("runpod status (s3)  run_id=%s  status=%s", run_id, raw)
+                if raw in ("done", "failed"):
+                    self._terminate_pod(run_id)
                 return raw  # type: ignore[return-value]
         except Exception:
             pass
@@ -121,6 +127,7 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
             )
             pod = runpod.get_pod(pod_id)
             mapped = _POD_STATUS_MAP.get(pod.get("desiredStatus", ""), "pending")
+            log.info("runpod status (api)  run_id=%s  desired=%s  mapped=%s", run_id, pod.get("desiredStatus"), mapped or "pending")
             return (mapped or "pending")  # type: ignore[return-value]
         except Exception:
             return "pending"
@@ -163,7 +170,9 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
             .decode()
         )
         data = json.loads(raw)
-        return float(data["valid_pct"]), bool(data["passed"])
+        valid_pct, passed = float(data["valid_pct"]), bool(data["passed"])
+        log.info("runpod eval (s3)  run_id=%s  valid_pct=%.1f%%  passed=%s", run_id, valid_pct * 100, passed)
+        return valid_pct, passed
 
     def progress(self, run_id: str) -> tuple[float, str]:
         try:
@@ -182,6 +191,25 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _terminate_pod(self, run_id: str) -> None:
+        """Terminate the training pod for run_id (best-effort, swallows all errors)."""
+        try:
+            import runpod
+
+            pod_id = (
+                self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/pod_id.txt")[
+                    "Body"
+                ]
+                .read()
+                .decode()
+                .strip()
+            )
+            log.info("runpod terminating pod  run_id=%s  pod_id=%s", run_id, pod_id)
+            runpod.terminate_pod(pod_id)
+            log.info("runpod pod terminated  run_id=%s  pod_id=%s", run_id, pod_id)
+        except Exception as exc:
+            log.warning("runpod terminate failed (best-effort)  run_id=%s  error=%s", run_id, exc)
 
     def _stage_files(self, config: RemoteTrainConfig, staging: Path) -> None:
         if staging.exists():
