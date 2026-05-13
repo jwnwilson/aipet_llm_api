@@ -61,3 +61,23 @@ def get_run_store() -> RunStorePort:
 def configure_run_store(store: RunStorePort) -> None:
     global _run_store
     _run_store = store
+
+
+# ---------------------------------------------------------------------------
+# Auth port
+# ---------------------------------------------------------------------------
+
+from domain.ports import AuthPort as _AuthPort
+
+_auth_port: _AuthPort | None = None
+
+
+def get_auth() -> _AuthPort:
+    if _auth_port is None:
+        raise RuntimeError("AuthPort has not been configured.")
+    return _auth_port
+
+
+def configure_auth(port: _AuthPort) -> None:
+    global _auth_port
+    _auth_port = port
