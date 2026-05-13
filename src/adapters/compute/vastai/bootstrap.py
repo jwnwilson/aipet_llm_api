@@ -47,31 +47,12 @@ def main() -> None:
         [sys.executable, "-m", "pip", "install", str(whl)],
         check=True,
     )
-
-    # Belt-and-suspenders: conda images sometimes confuse pip's resolver and
-    # skip installing heavy deps that are "already present" at a lower version.
-    # Explicitly install training packages so they are always present.
-    print("[bootstrap] ensuring training dependencies are installed", flush=True)
-    subprocess.run(
-        [
-            sys.executable, "-m", "pip", "install", "-q",
-            "transformers", "datasets", "accelerate", "peft",
-            "bitsandbytes", "sentencepiece",
-        ],
-        check=True,
-    )
-
-    # Verify key import is resolvable before handing off to training script.
-    import importlib.util
-    if importlib.util.find_spec("transformers") is None:
-        s3.put_object(Bucket=BUCKET, Key=f"{RUN_ID}/status.txt", Body=b"failed")
-        sys.exit("ERROR: transformers still not importable after explicit install — aborting.")
-    print("[bootstrap] transformers OK — starting training script", flush=True)
+    print("[bootstrap] wheel installed — starting training script", flush=True)
 
     # Wheel is now installed; delegate to the training script in the same process.
     # runpy sets __name__ = "__main__" so the if-block at the bottom fires.
     import runpy
-    runpy.run_module("adapters.compute.vastai.training_script", run_name="__main__")
+    runpy.run_module("adapters.compute.runpod.training_script", run_name="__main__")
 
 
 if __name__ == "__main__":

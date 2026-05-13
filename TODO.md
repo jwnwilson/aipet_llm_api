@@ -2,6 +2,8 @@
 
 1. Setup working vastai with end to end test
 2. Setup working runpod with end to end test
+    - Training working
+    - Validate export 
 3. Setup end to end test with valid presaved model in S3 or something 
 
 Setup plan and execute the following in parallel:
