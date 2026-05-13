@@ -1,6 +1,7 @@
 """RunPod-backed remote training adapter implementing RemoteTrainingPort."""
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -18,6 +19,18 @@ from domain.ports import RemoteTrainingPort
 
 _DEFAULT_GPU = "NVIDIA GeForce RTX 3090"
 _DEFAULT_IMAGE = "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel"
+
+# Inline fetcher: downloads bootstrap.py from S3 and exec()s it.
+# Base64-encoded so docker_args contains no quotes — RunPod's SDK embeds the
+# string directly into a GraphQL mutation without escaping, so any " breaks it.
+_BOOTSTRAP_FETCH_B64 = base64.b64encode(
+    b"import boto3,os;"
+    b"boto3.client('s3').download_file("
+    b"os.environ['AWS_S3_BUCKET'],"
+    b"os.environ['RUN_ID']+'/bootstrap.py',"
+    b"'/tmp/bootstrap.py');"
+    b"exec(open('/tmp/bootstrap.py').read())"
+).decode()
 
 # RunPod desiredStatus values → canonical states (EXITED resolved via S3 status.txt)
 _POD_STATUS_MAP: dict[str, str | None] = {
@@ -77,16 +90,8 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
             gpu_type_id=os.getenv("RUNPOD_GPU_TYPE_ID", _DEFAULT_GPU),
             container_disk_in_gb=50,
             docker_args=(
-                "bash -c '"
-                "pip install -q boto3 && "
-                "python -c \""
-                "import boto3,os; s3=boto3.client(\\\"s3\\\"); "
-                "s3.download_file(os.environ[\\\"AWS_S3_BUCKET\\\"],"
-                "os.environ[\\\"RUN_ID\\\"]+\\\"/bootstrap.py\\\","
-                "\\\"/tmp/bootstrap.py\\\"); "
-                "exec(open(\\\"/tmp/bootstrap.py\\\").read())"
-                "\""
-                "'"
+                f"pip install -q boto3 && "
+                f"echo {_BOOTSTRAP_FETCH_B64} | base64 -d | python"
             ),
             env={
                 "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
