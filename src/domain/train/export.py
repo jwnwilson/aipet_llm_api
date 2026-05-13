@@ -138,9 +138,11 @@ def _strip_bnb_quantization(checkpoint: Path) -> None:
 
 def _run(cmd: list[str], description: str) -> None:
     log.info("%s  $ %s", description, " ".join(cmd))
-    result = subprocess.run(cmd, check=False)
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if result.stdout:
+        log.info(result.stdout.strip())
     if result.returncode != 0:
-        log.error("command failed (exit %d): %s", result.returncode, " ".join(cmd))
+        log.error("command failed (exit %d): %s\n%s", result.returncode, " ".join(cmd), result.stderr.strip())
         sys.exit(1)
 
 
