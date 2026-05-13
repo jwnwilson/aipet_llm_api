@@ -69,6 +69,7 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
         staging = self._work_dir / config.experiment_name
         self._stage_files(config, staging)
         self._upload_to_s3(staging, run_id, config)
+        self._upload_bootstrap(run_id)
 
         pod = runpod.create_pod(
             name=config.experiment_name[:63],
@@ -76,8 +77,16 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
             gpu_type_id=os.getenv("RUNPOD_GPU_TYPE_ID", _DEFAULT_GPU),
             container_disk_in_gb=50,
             docker_args=(
-                "bash -c 'pip install -q boto3 && "
-                "python -m adapters.compute.runpod.training_script'"
+                "bash -c '"
+                "pip install -q boto3 && "
+                "python -c \""
+                "import boto3,os; s3=boto3.client(\\\"s3\\\"); "
+                "s3.download_file(os.environ[\\\"AWS_S3_BUCKET\\\"],"
+                "os.environ[\\\"RUN_ID\\\"]+\\\"/bootstrap.py\\\","
+                "\\\"/tmp/bootstrap.py\\\"); "
+                "exec(open(\\\"/tmp/bootstrap.py\\\").read())"
+                "\""
+                "'"
             ),
             env={
                 "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
@@ -215,6 +224,10 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
             log.info("runpod pod terminated  run_id=%s  pod_id=%s", run_id, pod_id)
         except Exception as exc:
             log.warning("runpod terminate failed (best-effort)  run_id=%s  error=%s", run_id, exc)
+
+    def _upload_bootstrap(self, run_id: str) -> None:
+        bootstrap = Path(__file__).parent / "bootstrap.py"
+        self._s3.upload_file(str(bootstrap), self._bucket, f"{run_id}/bootstrap.py")
 
     def _stage_files(self, config: RemoteTrainConfig, staging: Path) -> None:
         if staging.exists():
