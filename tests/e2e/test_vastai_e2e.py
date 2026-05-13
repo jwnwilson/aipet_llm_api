@@ -87,9 +87,10 @@ _ACTIVITIES = [
 async def _run_pipeline(tmp_path: Path, scenario: str, task_queue: str) -> PipelineResult:
     """Rent a real Vast.ai instance and run the full Temporal pipeline.
 
-    Evaluation runs on a second Vast.ai GPU instance (evaluation_script.py) which
-    writes eval_result.json to S3.  The adapter polls until the instance completes
-    and then destroys it.
+    Training and evaluation both run on the same instance: training_script.py
+    runs HF eval after training and writes eval_result.json to S3 before the
+    instance exits.  VastAiTrainingAdapter.eval() reads that file directly —
+    no second instance is rented.
     """
     data_dir = tmp_path / "data"
     checkpoint_dir = tmp_path / "checkpoint"

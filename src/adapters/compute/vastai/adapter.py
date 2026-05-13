@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import tarfile
-import time
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -105,6 +104,8 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                 .strip()
             )
             if raw in ("pending", "running", "done", "failed"):
+                if raw in ("done", "failed"):
+                    self._destroy_instance(run_id)
                 return raw  # type: ignore[return-value]
         except Exception:
             pass
@@ -155,93 +156,8 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
             return ""
 
     def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:
-        # Upload eval data if it exists locally and isn't already on S3.
-        if eval_data:
-            local_eval = Path(eval_data)
-            if local_eval.exists():
-                s3_key = f"{run_id}/data/{local_eval.name}"
-                try:
-                    self._s3.head_object(Bucket=self._bucket, Key=s3_key)
-                except Exception:
-                    self._s3.upload_file(str(local_eval), self._bucket, s3_key)
-
-        client = self._build_vastai_client()
-        result = self._create_instance(
-            client,
-            onstart_cmd=(
-                "bash -c 'pip install -q boto3 && "
-                "python -m adapters.compute.vastai.evaluation_script'"
-            ),
-            env={
-                "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
-                "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
-                "AWS_DEFAULT_REGION": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
-                "AWS_S3_BUCKET": self._bucket,
-                "RUN_ID": run_id,
-            },
-        )
-        eval_instance_id = str(result.get("new_contract", result.get("id", "")))
-        self._s3.put_object(
-            Bucket=self._bucket,
-            Key=f"{run_id}/eval_instance_id.txt",
-            Body=eval_instance_id.encode(),
-        )
-
-        try:
-            while True:
-                # Primary: S3 eval_status.txt written by the evaluation script
-                eval_status = None
-                try:
-                    eval_status = (
-                        self._s3.get_object(
-                            Bucket=self._bucket, Key=f"{run_id}/eval_status.txt"
-                        )["Body"]
-                        .read()
-                        .decode()
-                        .strip()
-                    )
-                except Exception:
-                    pass
-
-                if eval_status == "done":
-                    break
-                if eval_status == "failed":
-                    raise RuntimeError(f"Remote evaluation failed (run_id={run_id})")
-
-                # Fallback: check Vast.ai API for crash / eviction
-                try:
-                    instance = client.show_instance(id=int(eval_instance_id))
-                    actual = instance.get("actual_status", "")
-                    if actual in ("exited", "stopped"):
-                        # One final check in case the instance wrote status before stopping
-                        try:
-                            final = (
-                                self._s3.get_object(
-                                    Bucket=self._bucket, Key=f"{run_id}/eval_status.txt"
-                                )["Body"]
-                                .read()
-                                .decode()
-                                .strip()
-                            )
-                            if final == "done":
-                                break
-                        except Exception:
-                            pass
-                        raise RuntimeError(
-                            f"Eval instance exited without writing results (run_id={run_id})"
-                        )
-                except RuntimeError:
-                    raise
-                except Exception:
-                    pass
-
-                time.sleep(30)
-        finally:
-            try:
-                client.destroy_instance(id=int(eval_instance_id))
-            except Exception:
-                pass
-
+        # Eval ran on the training instance (training_script.py) and results
+        # are already on S3 by the time train_activity completes.
         raw = (
             self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/eval_result.json")[
                 "Body"
@@ -270,6 +186,21 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
     # Helpers
     # ------------------------------------------------------------------
 
+    def _destroy_instance(self, run_id: str) -> None:
+        """Destroy the training instance for run_id (best-effort, swallows all errors)."""
+        try:
+            instance_id = int(
+                self._s3.get_object(
+                    Bucket=self._bucket, Key=f"{run_id}/instance_id.txt"
+                )["Body"]
+                .read()
+                .decode()
+                .strip()
+            )
+            self._build_vastai_client().destroy_instance(id=instance_id)
+        except Exception:
+            pass
+
     def _create_instance(self, client, onstart_cmd: str, env: dict, max_retries: int = 3) -> dict:
         """Search for the cheapest matching offer and create an instance.
 
@@ -295,6 +226,14 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
                 )
             except requests.exceptions.HTTPError as exc:
                 if exc.response is not None and exc.response.status_code == 400:
+                    body = exc.response.text or ""
+                    # Billing / account errors won't be fixed by retrying a different offer.
+                    if any(kw in body.lower() for kw in ("credit", "balance", "payment", "billing", "insufficient")):
+                        raise RuntimeError(
+                            f"Vast.ai rejected the request — likely insufficient credits. "
+                            f"Add credits at https://vast.ai/console/billing/ and retry. "
+                            f"API response: {body}"
+                        ) from exc
                     last_exc = exc
                     continue
                 raise

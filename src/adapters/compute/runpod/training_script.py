@@ -6,11 +6,13 @@ Installed as part of the project wheel so it is importable as:
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
 import sys
 import tarfile
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -106,8 +108,44 @@ def main() -> None:
         tf.add(checkpoint_dir, arcname="checkpoints")
 
     s3.upload_file(str(archive), BUCKET, f"{RUN_ID}/checkpoint.tar.gz")
+    put_progress(0.95, "evaluating checkpoint")
+
+    # Run HF eval in-process so results land on S3 before the instance exits.
+    # On failure we still mark training done — the checkpoint is usable.
+    try:
+        from domain.train.evaluate import PASS_THRESHOLD, evaluate, infer_hf, load_hf_pipeline
+
+        pipe = load_hf_pipeline(str(checkpoint_dir))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = evaluate(Path("data/eval.jsonl"), lambda p: infer_hf(pipe, p))
+
+        output = buf.getvalue()
+        valid_pct = _parse_valid_pct(output)
+        if valid_pct is None:
+            valid_pct = 1.0 if exit_code == 0 else 0.0
+        passed = valid_pct >= PASS_THRESHOLD
+    except Exception as exc:
+        print(f"[eval] failed — storing 0%: {exc}", file=sys.stderr)
+        valid_pct, passed = 0.0, False
+
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=f"{RUN_ID}/eval_result.json",
+        Body=json.dumps({"valid_pct": valid_pct, "passed": passed}).encode(),
+    )
     put_progress(1.0, "done")
     put_status("done")
+
+
+def _parse_valid_pct(output: str) -> float | None:
+    for line in output.splitlines():
+        if line.startswith("Valid:") and "(" in line and "%)" in line:
+            try:
+                return float(line.split("(")[1].split("%")[0].strip()) / 100.0
+            except (IndexError, ValueError):
+                pass
+    return None
 
 
 if __name__ == "__main__":

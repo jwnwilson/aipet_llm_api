@@ -152,6 +152,19 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
         except Exception:
             return ""
 
+    def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:
+        # Eval ran on the training pod (training_script.py) and results
+        # are already on S3 by the time train_activity completes.
+        raw = (
+            self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/eval_result.json")[
+                "Body"
+            ]
+            .read()
+            .decode()
+        )
+        data = json.loads(raw)
+        return float(data["valid_pct"]), bool(data["passed"])
+
     def progress(self, run_id: str) -> tuple[float, str]:
         try:
             raw = (
