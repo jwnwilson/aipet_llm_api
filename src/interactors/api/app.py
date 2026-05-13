@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from adapters.inference import LlamaCppInferenceAdapter
     from interactors.api.deps import (
         clear_adapter,
+        clear_auth,
         configure,
         configure_auth,
         configure_model_store,
@@ -87,6 +88,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         yield
     finally:
         clear_adapter()
+        clear_auth()
 
 
 from interactors.api.routes.inference import router as inference_router  # noqa: E402
@@ -98,7 +100,7 @@ app = FastAPI(title="aipet-llm inference service", lifespan=lifespan)
 
 _cors_raw = os.getenv("CORS_ORIGINS", "")
 if os.getenv("APP_ENV") == "development":
-    _cors_origins: list[str] = ["*"]
+    _cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"]
 elif _cors_raw:
     _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 else:
