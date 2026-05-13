@@ -147,7 +147,9 @@ class VastAiTrainingAdapter(RemoteTrainingPort):
         with tarfile.open(archive) as tf:
             tf.extractall(dest, filter="data")
         archive.unlink()
-        return str(dest)
+        # Archive is created with arcname="checkpoints", so model files land in dest/checkpoints/
+        checkpoints_dir = dest / "checkpoints"
+        return str(checkpoints_dir if checkpoints_dir.exists() else dest)
 
     def logs(self, run_id: str) -> str:
         try:
