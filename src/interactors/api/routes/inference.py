@@ -7,16 +7,17 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from interactors.api.deps import get_adapter
 from domain.models import InferenceRequest, InferenceResponse
 from domain.ports import InferencePort
+from interactors.api.auth import require_auth
+from interactors.api.deps import get_adapter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.post("/infer", response_model=InferenceResponse)
+@router.post("/infer", response_model=InferenceResponse, dependencies=[Depends(require_auth)])
 def infer(
     request: InferenceRequest,
     adapter: InferencePort = Depends(get_adapter),

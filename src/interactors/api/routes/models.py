@@ -9,11 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from domain.models import TrainingModel, TrainingModelConfig
 from domain.ports import ModelStorePort
+from interactors.api.auth import require_auth
 from interactors.api.deps import get_model_store
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/models", tags=["models"])
+router = APIRouter(
+    prefix="/api/models",
+    tags=["models"],
+    dependencies=[Depends(require_auth)],
+)
 
 
 @router.get("", response_model=list[TrainingModel])

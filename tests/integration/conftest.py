@@ -36,3 +36,17 @@ def kaggle_credentials() -> None:
             "Kaggle credentials not set — export KAGGLE_USERNAME and "
             "KAGGLE_KEY (or KAGGLE_API_TOKEN) to run this test"
         )
+
+
+@pytest.fixture(autouse=True)
+def _auth_bypass():
+    """Bypass require_auth for all integration tests by default.
+
+    test_auth.py overrides this fixture with the same name to test real auth enforcement.
+    """
+    from interactors.api.app import app
+    from interactors.api.auth import require_auth
+
+    app.dependency_overrides[require_auth] = lambda: None
+    yield
+    app.dependency_overrides.pop(require_auth, None)
