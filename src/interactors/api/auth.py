@@ -7,15 +7,17 @@ from fastapi import Depends, Header, HTTPException
 from domain.ports import AuthPort
 from interactors.api.deps import get_auth
 
+_WWW_AUTH = {"WWW-Authenticate": "Bearer"}
+
 
 def require_auth(
     authorization: str | None = Header(default=None),
     auth_port: AuthPort = Depends(get_auth),
 ) -> None:
     if authorization is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="Not authenticated", headers=_WWW_AUTH)
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="Not authenticated", headers=_WWW_AUTH)
     if auth_port.authenticate(token) is None:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid token", headers=_WWW_AUTH)
