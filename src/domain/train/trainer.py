@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -30,7 +31,12 @@ try:
         TrainingArguments,
     )
     _TRANSFORMERS_AVAILABLE = True
-except ModuleNotFoundError:
+except (ImportError, ModuleNotFoundError) as _transformers_import_err:
+    print(
+        f"[trainer] WARNING: transformers import failed — {_transformers_import_err!r}",
+        file=sys.stderr,
+        flush=True,
+    )
     _TRANSFORMERS_AVAILABLE = False
     # Stubs so class definitions below parse without transformers installed.
     TrainerCallback = object  # type: ignore[assignment,misc]
@@ -39,13 +45,15 @@ except ModuleNotFoundError:
 try:
     from datasets import Dataset
     _DATASETS_AVAILABLE = True
-except ModuleNotFoundError:
+except (ImportError, ModuleNotFoundError) as _e:
+    print(f"[trainer] WARNING: datasets import failed — {_e!r}", file=sys.stderr, flush=True)
     _DATASETS_AVAILABLE = False
 
 try:
     from peft import LoraConfig, TaskType, get_peft_model
     _PEFT_AVAILABLE = True
-except ModuleNotFoundError:
+except (ImportError, ModuleNotFoundError) as _e:
+    print(f"[trainer] WARNING: peft import failed — {_e!r}", file=sys.stderr, flush=True)
     _PEFT_AVAILABLE = False
 
 from domain.train.config import (

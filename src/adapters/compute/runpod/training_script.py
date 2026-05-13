@@ -85,7 +85,7 @@ def main() -> None:
 
     # Run training
     cmd = [
-        sys.executable, "-m", "cli.train",
+        sys.executable, "-m", "interactors.cli.train",
         "--model", os.environ["MODEL"],
         "--epochs", os.environ["EPOCHS"],
         "--patience", os.environ["PATIENCE"],

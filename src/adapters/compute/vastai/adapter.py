@@ -17,7 +17,7 @@ from domain.models import RemoteTrainConfig
 from domain.ports import RemoteTrainingPort
 
 _DEFAULT_GPU_QUERY = "num_gpus=1 gpu_name=RTX_3090 reliability>0.99"
-_DEFAULT_IMAGE = "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel"
+_DEFAULT_IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel"
 
 # Vast.ai actual_status values → canonical states
 _INSTANCE_STATUS_MAP: dict[str, str | None] = {

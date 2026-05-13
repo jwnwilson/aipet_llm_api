@@ -337,14 +337,23 @@ class TestTrainRemotePolling:
         adapter.download.return_value = download_path
         return adapter
 
-    @pytest.mark.asyncio
-    async def test_calls_adapter_logs_each_poll(self, monkeypatch):
+    def _patches(self, monkeypatch):
+        """Common patches: silence activity logger, stop heartbeat loop from spinning."""
         import interactors.temporal.activities as acts
 
-        adapter = self._make_adapter(["running", "done"])
-        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
-        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+        async def _noop_heartbeat_loop(*args, **kwargs):
+            pass
 
+        monkeypatch.setattr(acts, "_heartbeat_loop", _noop_heartbeat_loop)
+        monkeypatch.setattr(acts.activity, "logger", MagicMock())
+        return acts
+
+    @pytest.mark.asyncio
+    async def test_calls_adapter_logs_each_poll(self, monkeypatch):
+        acts = self._patches(monkeypatch)
+        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
+
+        adapter = self._make_adapter(["running", "done"])
         config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
         with patch("interactors.temporal.activities.asyncio.sleep"):
             await acts._train_remote(config, adapter)
@@ -353,13 +362,11 @@ class TestTrainRemotePolling:
 
     @pytest.mark.asyncio
     async def test_heartbeat_is_dict_with_status_elapsed_and_logs(self, monkeypatch):
-        import interactors.temporal.activities as acts
-
-        adapter = self._make_adapter(["running", "done"])
+        acts = self._patches(monkeypatch)
         captured: list[dict] = []
         monkeypatch.setattr(acts.activity, "heartbeat", lambda hb: captured.append(hb))
-        monkeypatch.setattr(acts.activity, "logger", MagicMock())
 
+        adapter = self._make_adapter(["running", "done"])
         config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
         with patch("interactors.temporal.activities.asyncio.sleep"):
             await acts._train_remote(config, adapter)
@@ -373,13 +380,11 @@ class TestTrainRemotePolling:
 
     @pytest.mark.asyncio
     async def test_heartbeat_logs_field_is_empty_when_adapter_returns_none(self, monkeypatch):
-        import interactors.temporal.activities as acts
-
-        adapter = self._make_adapter(["done"], log_output="")
+        acts = self._patches(monkeypatch)
         captured: list[dict] = []
         monkeypatch.setattr(acts.activity, "heartbeat", lambda hb: captured.append(hb))
-        monkeypatch.setattr(acts.activity, "logger", MagicMock())
 
+        adapter = self._make_adapter(["done"], log_output="")
         config = TrainConfig(experiment_name="test-exp", output_dir="/tmp/out")
         with patch("interactors.temporal.activities.asyncio.sleep"):
             await acts._train_remote(config, adapter)

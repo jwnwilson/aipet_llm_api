@@ -20,16 +20,16 @@ from domain.ports import RemoteTrainingPort
 _DEFAULT_GPU = "NVIDIA GeForce RTX 3090"
 _DEFAULT_IMAGE = "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel"
 
-# Inline fetcher: downloads bootstrap.py from S3 and exec()s it.
-# Base64-encoded so docker_args contains no quotes — RunPod's SDK embeds the
-# string directly into a GraphQL mutation without escaping, so any " breaks it.
+# Fetcher script: downloads bootstrap.py from S3 and exec()s it.
+# Base64-encoded because RunPod's SDK embeds docker_args directly into a
+# GraphQL mutation string without escaping — any " character breaks the query.
 _BOOTSTRAP_FETCH_B64 = base64.b64encode(
     b"import boto3,os;"
     b"boto3.client('s3').download_file("
     b"os.environ['AWS_S3_BUCKET'],"
     b"os.environ['RUN_ID']+'/bootstrap.py',"
-    b"'/tmp/bootstrap.py');"
-    b"exec(open('/tmp/bootstrap.py').read())"
+    b"'/tmp/aipet_bootstrap.py');"
+    b"exec(open('/tmp/aipet_bootstrap.py').read())"
 ).decode()
 
 # RunPod desiredStatus values → canonical states (EXITED resolved via S3 status.txt)
@@ -82,7 +82,6 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
         staging = self._work_dir / config.experiment_name
         self._stage_files(config, staging)
         self._upload_to_s3(staging, run_id, config)
-        self._upload_bootstrap(run_id)
 
         pod = runpod.create_pod(
             name=config.experiment_name[:63],
@@ -90,20 +89,10 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
             gpu_type_id=os.getenv("RUNPOD_GPU_TYPE_ID", _DEFAULT_GPU),
             container_disk_in_gb=50,
             docker_args=(
-                f"pip install -q boto3 && "
-                f"echo {_BOOTSTRAP_FETCH_B64} | base64 -d | python"
+                f"bash -c 'pip install -q boto3 && "
+                f"echo {_BOOTSTRAP_FETCH_B64} | base64 -d | python'"
             ),
-            env={
-                "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
-                "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
-                "AWS_DEFAULT_REGION": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
-                "AWS_S3_BUCKET": self._bucket,
-                "RUN_ID": run_id,
-                "MODEL": config.model,
-                "EPOCHS": str(config.epochs),
-                "PATIENCE": str(config.patience),
-                "WARMUP_RATIO": str(config.warmup_ratio),
-            },
+            env=self._build_pod_env(run_id, config),
         )
         # Persist pod_id so status() can cross-check RunPod API for crash detection
         self._s3.put_object(
@@ -163,9 +152,23 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
         return str(dest)
 
     def logs(self, run_id: str) -> str:
+        # Prefer the archived copy (available even after pod is gone)
+        try:
+            archived = (
+                self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/logs.txt")[
+                    "Body"
+                ]
+                .read()
+                .decode()
+            )
+            if archived:
+                return archived
+        except Exception:
+            pass
+
+        # Fall back to live RunPod API (pod still running)
         try:
             runpod = self._configure_runpod()
-
             pod_id = (
                 self._s3.get_object(Bucket=self._bucket, Key=f"{run_id}/pod_id.txt")[
                     "Body"
@@ -178,7 +181,7 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
         except Exception:
             return ""
 
-    def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:
+    def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:  # noqa: ARG002
         # Eval ran on the training pod (training_script.py) and results
         # are already on S3 by the time train_activity completes.
         raw = (
@@ -211,6 +214,22 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
     # Helpers
     # ------------------------------------------------------------------
 
+    def _build_pod_env(self, run_id: str, config: RemoteTrainConfig) -> dict:
+        env = {
+            "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
+            "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
+            "AWS_DEFAULT_REGION": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+            "AWS_S3_BUCKET": self._bucket,
+            "RUN_ID": run_id,
+            "MODEL": config.model,
+            "EPOCHS": str(config.epochs),
+            "PATIENCE": str(config.patience),
+            "WARMUP_RATIO": str(config.warmup_ratio),
+        }
+        if tok := os.environ.get("AWS_SESSION_TOKEN"):
+            env["AWS_SESSION_TOKEN"] = tok
+        return env
+
     def _terminate_pod(self, run_id: str) -> None:
         """Terminate the training pod for run_id (best-effort, swallows all errors)."""
         try:
@@ -224,15 +243,23 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
                 .decode()
                 .strip()
             )
+            try:
+                raw_logs = runpod.get_pod_log(pod_id) or ""
+                if raw_logs:
+                    self._s3.put_object(
+                        Bucket=self._bucket,
+                        Key=f"{run_id}/logs.txt",
+                        Body=raw_logs.encode(),
+                    )
+                    log.info("runpod logs archived  run_id=%s  bytes=%d", run_id, len(raw_logs))
+            except Exception as exc:
+                log.warning("runpod log capture failed (best-effort)  run_id=%s  error=%s", run_id, exc)
+
             log.info("runpod terminating pod  run_id=%s  pod_id=%s", run_id, pod_id)
             runpod.terminate_pod(pod_id)
             log.info("runpod pod terminated  run_id=%s  pod_id=%s", run_id, pod_id)
         except Exception as exc:
             log.warning("runpod terminate failed (best-effort)  run_id=%s  error=%s", run_id, exc)
-
-    def _upload_bootstrap(self, run_id: str) -> None:
-        bootstrap = Path(__file__).parent / "bootstrap.py"
-        self._s3.upload_file(str(bootstrap), self._bucket, f"{run_id}/bootstrap.py")
 
     def _stage_files(self, config: RemoteTrainConfig, staging: Path) -> None:
         if staging.exists():
@@ -245,6 +272,9 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
             check=True,
         )
 
+        # Copy the standalone bootstrap script (no project-wheel dependency).
+        shutil.copy2(Path(__file__).parent / "bootstrap.py", staging / "bootstrap.py")
+
         train_data = Path(config.train_data)
         if not train_data.is_absolute():
             train_data = self._project_root / train_data
@@ -252,7 +282,7 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
             shutil.copy2(jsonl, staging / jsonl.name)
 
     def _upload_to_s3(
-        self, staging: Path, run_id: str, config: RemoteTrainConfig
+        self, staging: Path, run_id: str, config: RemoteTrainConfig  # noqa: ARG002
     ) -> None:
         for path in staging.iterdir():
             if not path.is_file():
@@ -261,6 +291,8 @@ class RunPodTrainingAdapter(RemoteTrainingPort):
                 key = f"{run_id}/{path.name}"
             elif path.suffix == ".jsonl":
                 key = f"{run_id}/data/{path.name}"
+            elif path.name == "bootstrap.py":
+                key = f"{run_id}/bootstrap.py"
             else:
                 continue
             self._s3.upload_file(str(path), self._bucket, key)

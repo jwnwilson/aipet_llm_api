@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from temporalio import activity
+
+log = logging.getLogger(__name__)
 from temporalio.exceptions import ApplicationError
 
 from domain.ports import ModelStorePort, RemoteTrainingPort, RunStorePort, StoragePort
@@ -281,60 +284,77 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
         raise ApplicationError(f"Remote submit failed: {exc}") from exc
     finally:
         heartbeat_task.cancel()
+        await asyncio.gather(heartbeat_task, return_exceptions=True)
 
     activity.logger.info("Remote job submitted: adapter=%s run_id=%s", type(adapter).__name__, run_id)
 
     started_at = time.time()
-    while True:
-        # status/logs/progress all run subprocess — keep them off the event loop.
-        try:
-            status = await loop.run_in_executor(None, lambda: adapter.status(run_id))
-        except Exception as exc:
-            raise ApplicationError(f"Remote status check failed: {exc}") from exc
 
-        elapsed_s = int(time.time() - started_at)
-        logs = await loop.run_in_executor(None, lambda: adapter.logs(run_id))
-
-        activity.logger.info(
-            "Remote status: adapter=%s run_id=%s status=%s elapsed=%ds",
-            type(adapter).__name__, run_id, status, elapsed_s,
-        )
-        if logs:
-            activity.logger.info("Instance output:\n%s", logs)
-
-        activity.heartbeat({"status": status, "elapsed_s": elapsed_s, "logs": logs})
-
-        if config.db_run_id:
+    # Background heartbeat keeps the activity alive while executor calls block.
+    # status() + logs() can take >2 min on slow VastAI/S3 paths; without this
+    # the heartbeat_timeout fires before the inline heartbeat arrives.
+    poll_heartbeat = asyncio.ensure_future(_heartbeat_loop("train_poll", interval=30))
+    try:
+        while True:
+            # status/logs/progress all run subprocess — keep them off the event loop.
             try:
-                frac, detail = await loop.run_in_executor(None, lambda: adapter.progress(run_id))
-                if frac > 0:
-                    _get_run_store().update_progress(config.db_run_id, frac, detail)
-            except Exception:
-                pass
+                status = await loop.run_in_executor(None, lambda: adapter.status(run_id))
+            except Exception as exc:
+                raise ApplicationError(f"Remote status check failed: {exc}") from exc
 
-        if status == "done":
-            # Defer download — eval may run on the remote, so we avoid pulling
-            # gigabytes of checkpoint data until we know the model actually passes.
-            return CheckpointPath(
-                run_id=run_id,
-                remote_backend=config.remote_backend,
-            )
+            elapsed_s = int(time.time() - started_at)
+            logs = await loop.run_in_executor(None, lambda: adapter.logs(run_id))
 
-        if status == "failed":
-            raise ApplicationError(
-                f"Remote training failed (adapter={type(adapter).__name__}, run_id={run_id})"
+            activity.logger.info(
+                "Remote status: adapter=%s run_id=%s status=%s elapsed=%ds",
+                type(adapter).__name__, run_id, status, elapsed_s,
             )
+            log.info(
+                "Remote status: adapter=%s run_id=%s status=%s elapsed=%ds",
+                type(adapter).__name__, run_id, status, elapsed_s,
+            )
+            if logs:
+                activity.logger.info("Instance output:\n%s", logs)
+                log.info("Instance output (run_id=%s):\n%s", run_id, logs)
 
-        try:
-            await asyncio.sleep(30)
-        except asyncio.CancelledError:
-            activity.logger.warning(
-                "train_activity cancelled while polling (adapter=%s, run_id=%s, elapsed=%ds)",
-                type(adapter).__name__,
-                run_id,
-                int(time.time() - started_at),
-            )
-            raise
+            # Detailed heartbeat after each poll (background loop covers gaps between polls).
+            activity.heartbeat({"status": status, "elapsed_s": elapsed_s, "logs": logs})
+
+            if config.db_run_id:
+                try:
+                    frac, detail = await loop.run_in_executor(None, lambda: adapter.progress(run_id))
+                    if frac > 0:
+                        _get_run_store().update_progress(config.db_run_id, frac, detail)
+                except Exception:
+                    pass
+
+            if status == "done":
+                # Defer download — eval may run on the remote, so we avoid pulling
+                # gigabytes of checkpoint data until we know the model actually passes.
+                return CheckpointPath(
+                    run_id=run_id,
+                    remote_backend=config.remote_backend,
+                )
+
+            if status == "failed":
+                tail = f"\n--- pod logs ---\n{logs}" if logs else " (no logs captured)"
+                raise ApplicationError(
+                    f"Remote training failed (adapter={type(adapter).__name__}, run_id={run_id}){tail}"
+                )
+
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                activity.logger.warning(
+                    "train_activity cancelled while polling (adapter=%s, run_id=%s, elapsed=%ds)",
+                    type(adapter).__name__,
+                    run_id,
+                    int(time.time() - started_at),
+                )
+                raise
+    finally:
+        poll_heartbeat.cancel()
+        await asyncio.gather(poll_heartbeat, return_exceptions=True)
 
 
 @activity.defn

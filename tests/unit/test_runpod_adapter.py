@@ -44,6 +44,30 @@ def _make_adapter(monkeypatch, tmp_path: Path):
 
 
 class TestRunPodAdapterSubmit:
+    def _submit(self, monkeypatch, tmp_path):
+        """Run submit() and return (run_id, create_pod call kwargs)."""
+        adapter, s3 = _make_adapter(monkeypatch, tmp_path)
+        monkeypatch.setattr(adapter, "_stage_files", lambda config, staging: staging.mkdir(parents=True, exist_ok=True))
+        monkeypatch.setattr(adapter, "_upload_to_s3", lambda staging, run_id, config: None)
+
+        mock_runpod = MagicMock()
+        mock_runpod.create_pod.return_value = {"id": "pod-abc123"}
+        import sys
+        sys.modules["runpod"] = mock_runpod
+
+        run_id = adapter.submit(_config())
+        return run_id, mock_runpod.create_pod.call_args.kwargs
+
+    def test_docker_args_contains_no_double_quotes(self, monkeypatch, tmp_path):
+        # RunPod's SDK embeds docker_args directly into a GraphQL mutation string
+        # without escaping — any " character breaks the query with a syntax error.
+        _, kwargs = self._submit(monkeypatch, tmp_path)
+        docker_args = kwargs["docker_args"]
+        assert '"' not in docker_args, (
+            f'docker_args must not contain double-quote characters '
+            f'(RunPod GraphQL will break). Got: {docker_args!r}'
+        )
+
     def test_submit_creates_pod_and_uploads_to_s3(self, monkeypatch, tmp_path):
         adapter, s3 = _make_adapter(monkeypatch, tmp_path)
 
@@ -122,6 +146,58 @@ class TestRunPodAdapterDownload:
         assert Path(result) == dest
         assert (dest / "checkpoints" / "config.json").exists()
         assert not (dest / "checkpoint.tar.gz").exists()
+
+
+class TestRunPodAdapterLogs:
+    def test_terminate_pod_archives_logs_to_s3(self, monkeypatch, tmp_path):
+        adapter, s3 = _make_adapter(monkeypatch, tmp_path)
+        s3.get_object.return_value = {"Body": MagicMock(read=lambda: b"pod-xyz")}
+
+        import sys
+        mock_runpod = MagicMock()
+        mock_runpod.get_pod_log.return_value = "epoch 1 loss=0.5\nepoch 2 loss=0.3"
+        sys.modules["runpod"] = mock_runpod
+
+        adapter._terminate_pod("runpod/test-exp-aabbcc")
+
+        put_calls = [c for c in s3.put_object.call_args_list if c.kwargs.get("Key", "").endswith("/logs.txt")]
+        assert len(put_calls) == 1
+        assert put_calls[0].kwargs["Body"] == b"epoch 1 loss=0.5\nepoch 2 loss=0.3"
+        mock_runpod.terminate_pod.assert_called_once()
+
+    def test_logs_returns_s3_archive_when_available(self, monkeypatch, tmp_path):
+        adapter, s3 = _make_adapter(monkeypatch, tmp_path)
+        archived = b"archived training log line 1\nline 2"
+        s3.get_object.return_value = {"Body": MagicMock(read=lambda: archived)}
+
+        import sys
+        mock_runpod = MagicMock()
+        sys.modules["runpod"] = mock_runpod
+
+        result = adapter.logs("runpod/test-exp-aabbcc")
+
+        assert result == archived.decode()
+        mock_runpod.get_pod_log.assert_not_called()
+
+    def test_logs_falls_back_to_runpod_api(self, monkeypatch, tmp_path):
+        adapter, s3 = _make_adapter(monkeypatch, tmp_path)
+
+        def get_object(Bucket, Key):
+            if Key.endswith("logs.txt"):
+                raise Exception("NoSuchKey")
+            return {"Body": MagicMock(read=lambda: b"pod-xyz")}
+
+        s3.get_object.side_effect = get_object
+
+        import sys
+        mock_runpod = MagicMock()
+        mock_runpod.get_pod_log.return_value = "live log output"
+        sys.modules["runpod"] = mock_runpod
+
+        result = adapter.logs("runpod/test-exp-aabbcc")
+
+        assert result == "live log output"
+        mock_runpod.get_pod_log.assert_called_once_with("pod-xyz")
 
 
 class TestRunPodAdapterProgress:

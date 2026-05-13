@@ -136,7 +136,7 @@ class TrainingPipelineWorkflow:
                 force_qlora=config.force_qlora,
             ),
             start_to_close_timeout=timedelta(hours=6),
-            heartbeat_timeout=timedelta(minutes=2),
+            heartbeat_timeout=timedelta(minutes=5),
             retry_policy=_NO_RETRY,
         )
 
