@@ -413,14 +413,22 @@ class TestTrainRemoteProgress:
         adapter.download.return_value = download_path
         return adapter
 
-    @pytest.mark.asyncio
-    async def test_calls_adapter_progress_and_persists_when_db_run_id_set(self, monkeypatch):
+    def _patches(self, monkeypatch):
         import interactors.temporal.activities as acts
 
-        mock_store = MagicMock()
-        monkeypatch.setattr(acts, "_run_store", mock_store)
+        async def _noop_heartbeat_loop(*args, **kwargs):
+            pass
+
+        monkeypatch.setattr(acts, "_heartbeat_loop", _noop_heartbeat_loop)
         monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
         monkeypatch.setattr(acts.activity, "logger", MagicMock())
+        return acts
+
+    @pytest.mark.asyncio
+    async def test_calls_adapter_progress_and_persists_when_db_run_id_set(self, monkeypatch):
+        acts = self._patches(monkeypatch)
+        mock_store = MagicMock()
+        monkeypatch.setattr(acts, "_run_store", mock_store)
 
         adapter = self._make_adapter(["done"], progress_return=(0.5, "epoch=1.0  loss=0.4312"))
         config = TrainConfig(db_run_id="run-db-1", experiment_name="test", output_dir="/tmp/out")
@@ -432,12 +440,9 @@ class TestTrainRemoteProgress:
 
     @pytest.mark.asyncio
     async def test_skips_update_when_fraction_is_zero(self, monkeypatch):
-        import interactors.temporal.activities as acts
-
+        acts = self._patches(monkeypatch)
         mock_store = MagicMock()
         monkeypatch.setattr(acts, "_run_store", mock_store)
-        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
-        monkeypatch.setattr(acts.activity, "logger", MagicMock())
 
         adapter = self._make_adapter(["done"], progress_return=(0.0, ""))
         config = TrainConfig(db_run_id="run-db-1", experiment_name="test", output_dir="/tmp/out")
@@ -449,12 +454,9 @@ class TestTrainRemoteProgress:
 
     @pytest.mark.asyncio
     async def test_skips_progress_entirely_when_no_db_run_id(self, monkeypatch):
-        import interactors.temporal.activities as acts
-
+        acts = self._patches(monkeypatch)
         mock_store = MagicMock()
         monkeypatch.setattr(acts, "_run_store", mock_store)
-        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
-        monkeypatch.setattr(acts.activity, "logger", MagicMock())
 
         adapter = self._make_adapter(["done"], progress_return=(0.75, "epoch=2.0"))
         config = TrainConfig(db_run_id="", experiment_name="test", output_dir="/tmp/out")
@@ -466,13 +468,10 @@ class TestTrainRemoteProgress:
 
     @pytest.mark.asyncio
     async def test_progress_errors_do_not_fail_the_activity(self, monkeypatch):
-        import interactors.temporal.activities as acts
-
+        acts = self._patches(monkeypatch)
         mock_store = MagicMock()
         mock_store.update_progress.side_effect = RuntimeError("DB gone")
         monkeypatch.setattr(acts, "_run_store", mock_store)
-        monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
-        monkeypatch.setattr(acts.activity, "logger", MagicMock())
 
         adapter = self._make_adapter(["done"], progress_return=(0.5, "epoch=1.0"))
         config = TrainConfig(db_run_id="run-db-1", experiment_name="test", output_dir="/tmp/out")
