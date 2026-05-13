@@ -31,8 +31,12 @@ class Auth0Adapter(AuthPort):
                 audience=self._audience,
                 issuer=self._issuer,
             )
+            sub = payload.get("sub")
+            if sub is None:
+                logger.debug("JWT missing sub claim")
+                return None
             return UserContext(
-                user_id=payload["sub"],
+                user_id=sub,
                 email=payload.get("email"),
             )
         except jwt.InvalidTokenError as exc:

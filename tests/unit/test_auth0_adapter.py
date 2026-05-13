@@ -78,3 +78,15 @@ class TestAuthenticate:
 
     def test_garbage_string_returns_none(self, adapter):
         assert adapter.authenticate("not.a.jwt") is None
+
+    def test_token_without_sub_returns_none(self, adapter):
+        now = datetime.now(timezone.utc)
+        claims = {
+            "iss": f"https://{DOMAIN}/",
+            "aud": AUDIENCE,
+            "iat": now,
+            "exp": now + timedelta(hours=1),
+            # no "sub"
+        }
+        no_sub_token = jwt.encode(claims, _PRIVATE_KEY, algorithm="RS256")
+        assert adapter.authenticate(no_sub_token) is None
