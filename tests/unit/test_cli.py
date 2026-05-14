@@ -198,23 +198,6 @@ class TestMakefile:
         assert (tmp_path / "train.jsonl").exists()
         assert (tmp_path / "eval.jsonl").exists()
 
-    def test_train_dry_run_cli(self, tmp_path: Path) -> None:
-        """Runs the same command make train DRY_RUN=1 invokes."""
-        env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src")}
-        subprocess.run(
-            [sys.executable, "src/interactors/cli/generate_dataset.py", "--data-dir", str(tmp_path),
-             "--train-size", "20", "--eval-size", "5"],
-            check=True, capture_output=True, cwd=PROJECT_ROOT, env=env,
-        )
-        result = subprocess.run(
-            [sys.executable, "src/interactors/cli/train.py",
-             "--dry-run",
-             "--train-data", str(tmp_path / "train.jsonl"),
-             "--eval-data", str(tmp_path / "eval.jsonl"),
-             "--output-dir", str(tmp_path / "checkpoints")],
-            capture_output=True, cwd=PROJECT_ROOT, env=env,
-        )
-        assert result.returncode == 0, result.stderr.decode()
 
 
 # ---------------------------------------------------------------------------

@@ -16,8 +16,10 @@ MODEL           ?= HuggingFaceTB/SmolLM2-1.7B
 # MODEL           ?= HuggingFaceTB/SmolLM2-360M
 FAST_MODEL      ?= HuggingFaceTB/SmolLM2-135M
 FAST_DATA_DIR   ?= data/fast
+GITHUB_REPO     ?= jwnwilson/aipet_llm_api
+TF_DIR          ?= infra/terraform
 
-.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train runpod-train vastai-train db-migrate db-revision seed-models help
+.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train runpod-train vastai-train db-migrate db-revision seed-models tf-init tf-plan tf-apply tf-deploy aws-env help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -230,6 +232,23 @@ db-revision: .venv ## Generate a new Alembic migration  (MSG="describe the chang
 
 seed-models: ## Seed the database with default training model configurations
 	PYTHONPATH=src uv run python -m interactors.cli.seed_models
+
+aws-env: ## Refresh AWS credentials in .env from the current AWS profile
+	uv run scripts/update_aws_env.py
+
+tf-init: ## Initialise Terraform working directory
+	set -a && . ./.env && set +a && terraform -chdir=$(TF_DIR) init
+
+tf-plan: ## Preview infrastructure changes  (GITHUB_REPO=owner/repo to override)
+	set -a && . ./.env && set +a && terraform -chdir=$(TF_DIR) plan -var="github_repo=$(GITHUB_REPO)"
+
+tf-apply: ## Apply infrastructure changes  (GITHUB_REPO=owner/repo to override)
+	set -a && . ./.env && set +a && terraform -chdir=$(TF_DIR) apply -var="github_repo=$(GITHUB_REPO)"
+
+tf-deploy: tf-apply ## Apply infra then set AWS_ROLE_ARN secret on GitHub  (requires gh CLI)
+	set -a && . ./.env && set +a && gh secret set AWS_ROLE_ARN \
+		--repo $(GITHUB_REPO) \
+		--body "$$(terraform -chdir=$(TF_DIR) output -raw github_actions_role_arn)"
 
 request: ## Send a test /infer request to the running API server  (HOST/PORT to override)
 	curl -s -X POST http://$(HOST):$(PORT)/infer \
