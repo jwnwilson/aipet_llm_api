@@ -20,3 +20,9 @@ variable "github_repo" {
   description = "GitHub repository in owner/name format — scopes the OIDC trust to main-branch pushes (e.g. myorg/aipet-llm)"
   type        = string
 }
+
+variable "s3_bucket" {
+  description = "S3 bucket name used to store models — grants the GitHub Actions role read access"
+  type        = string
+  default     = "aipet-jwn"
+}

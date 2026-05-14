@@ -29,11 +29,14 @@ data "aws_iam_policy_document" "github_actions_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Restricts to main branch pushes only — pull-request workflows cannot assume this role.
+    # Allow main branch pushes and pull requests.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
+      values   = [
+        "repo:${var.github_repo}:ref:refs/heads/main",
+        "repo:${var.github_repo}:pull_request",
+      ]
     }
   }
 }
@@ -46,4 +49,25 @@ resource "aws_iam_role" "github_actions" {
 resource "aws_iam_role_policy_attachment" "github_actions_ecr" {
   role       = aws_iam_role.github_actions.name
   policy_arn = aws_iam_policy.ecr_push.arn
+}
+
+data "aws_iam_policy_document" "s3_model_read" {
+  statement {
+    effect  = "Allow"
+    actions = ["s3:GetObject", "s3:HeadObject", "s3:ListBucket"]
+    resources = [
+      "arn:aws:s3:::${var.s3_bucket}",
+      "arn:aws:s3:::${var.s3_bucket}/*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "s3_model_read" {
+  name   = "${var.repo_name}-s3-model-read"
+  policy = data.aws_iam_policy_document.s3_model_read.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_s3" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.s3_model_read.arn
 }

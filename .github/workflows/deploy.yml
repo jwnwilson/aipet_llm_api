@@ -57,16 +57,29 @@ jobs:
         run: |
           echo "image=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-  # ── Deploy: apply manifests on the local k3s cluster ──────────────────────
-  # Requires a self-hosted runner on the k3s host with kubectl configured.
-  # Setup: see docs/plan.md or the CI/CD plan for runner installation steps.
+  # ── Deploy: apply manifests via kubeconfig secret ─────────────────────────
   deploy:
     needs: build
-    runs-on: [self-hosted, k3s]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     env:
       IMAGE: ${{ needs.build.outputs.image }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Write kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
 
       - name: Refresh ECR pull credentials in k8s
         run: |
