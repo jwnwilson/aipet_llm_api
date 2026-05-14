@@ -33,8 +33,8 @@ serve: .venv ## Start the FastAPI server  (MODEL_PATH=... make serve)
 	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run --env-file .env python -m uvicorn interactors.api.app:app \
 		--host $(HOST) --port $(PORT) --reload
 
-test: .venv ## Run unit + CLI tests (fast; excludes integration)
-	uv run python -m pytest tests/unit/ tests/cli/ -v
+test: .venv ## Run unit + integration tests (fast; excludes e2e)
+	uv run python -m pytest tests/unit/ tests/integration/ -v
 
 test-unit: .venv ## Run unit tests only
 	uv run python -m pytest tests/unit/ -v
@@ -42,8 +42,8 @@ test-unit: .venv ## Run unit tests only
 test-integration: .venv ## Run integration tests only (requires models/aipet.gguf)
 	uv run python -m pytest tests/integration/ -v
 
-test-cli: .venv ## Run CLI tests only
-	uv run python -m pytest tests/cli/ -v
+test-e2e: .venv ## Run end-to-end tests only (tests training on platforms with GPU access; requires AWS_S3_BUCKET + VAST_API_KEY or RUNPOD_API_KEY)
+	uv run python -m pytest tests/e2e/ -v
 
 test-all: .venv ## Run all tests including slow integration tests
 	uv run python -m pytest tests/ -v
@@ -86,7 +86,7 @@ setup-llama: ## Clone and build llama.cpp (required for make export)
 		git clone https://github.com/ggerganov/llama.cpp.git llama.cpp; \
 	fi
 	cmake -B llama.cpp/build llama.cpp
-	cmake --build llama.cpp/build --target llama-quantize --config Release -j$(sysctl -n hw.logicalcpu)
+	cmake --build llama.cpp/build --target llama-quantize --config Release -j$$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 	@echo "\nllama.cpp ready — run 'make export' to convert your checkpoint."
 
 export: ## Convert HF checkpoint → GGUF Q4_K_M  → models/aipet.gguf

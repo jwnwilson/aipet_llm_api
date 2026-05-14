@@ -1,7 +1,9 @@
 name: Build and Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
     branches: [main]
 
 # OIDC requires id-token:write; contents:read is the minimum for checkout.
@@ -14,25 +16,9 @@ env:
   ECR_REPOSITORY: aipet-llm
 
 jobs:
-  # ── Gate: tests must pass before we build ─────────────────────────────────
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-caching: true
-
-      - name: Install dependencies
-        run: uv sync --frozen --extra dev
-
-      - name: Run unit and CLI tests
-        run: uv run pytest tests/unit/ tests/cli/ -v
-
   # ── Build: push ARM64 image to ECR ────────────────────────────────────────
   build:
-    needs: test
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.image.outputs.image }}
