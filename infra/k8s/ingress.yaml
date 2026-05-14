@@ -8,7 +8,7 @@ spec:
   rules:
     # Replace with the public hostname of your inlets exit node or VPS.
     # To accept any hostname (e.g. bare IP access), remove the `host:` line entirely.
-    - host: "your-vps-hostname-or-domain.example.com"
+    - host: "aipet-llm.jwnwilson.co.uk"
       http:
         paths:
           - path: /
