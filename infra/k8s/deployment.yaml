@@ -25,6 +25,23 @@ spec:
           env:
             - name: MODEL_PATH
               value: /app/models/aipet.gguf
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: aws-s3-bucket
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: aws-access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: aws-secret-access-key
           resources:
             requests:
               cpu: "500m"

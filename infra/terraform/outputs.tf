@@ -22,3 +22,14 @@ output "github_actions_role_arn" {
   description = "IAM role ARN for GitHub Actions OIDC — set this as the AWS_ROLE_ARN repository secret"
   value       = aws_iam_role.github_actions.arn
 }
+
+output "aipet_aws_access_key_id" {
+  description = "Access key ID for the aipet app IAM user — set as AIPET_AWS_ACCESS_KEY_ID secret"
+  value       = aws_iam_access_key.aipet.id
+}
+
+output "aipet_aws_secret_access_key" {
+  description = "Secret access key for the aipet app IAM user — set as AIPET_AWS_SECRET_ACCESS_KEY secret"
+  value       = aws_iam_access_key.aipet.secret
+  sensitive   = true
+}

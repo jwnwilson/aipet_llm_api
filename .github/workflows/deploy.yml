@@ -81,6 +81,16 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
 
+      - name: Sync aipet-secrets in k8s
+        run: |
+          kubectl create secret generic aipet-secrets \
+            --from-literal=aws-s3-bucket=${{ secrets.AWS_S3_BUCKET }} \
+            --from-literal=aws-access-key-id=${{ secrets.AIPET_AWS_ACCESS_KEY_ID }} \
+            --from-literal=aws-secret-access-key=${{ secrets.AIPET_AWS_SECRET_ACCESS_KEY }} \
+            --from-literal=kaggle-username=${{ secrets.KAGGLE_USERNAME }} \
+            --from-literal=kaggle-key=${{ secrets.KAGGLE_KEY }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Refresh ECR pull credentials in k8s
         run: |
           AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)

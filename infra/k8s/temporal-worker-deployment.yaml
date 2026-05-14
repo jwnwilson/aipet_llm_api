@@ -28,6 +28,23 @@ spec:
             # e.g. "192.168.1.x:7233". Update once Temporal moves into k3s.
             - name: TEMPORAL_HOST
               value: "192.168.1.x:7233"
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: aws-s3-bucket
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: aws-access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: aws-secret-access-key
             - name: KAGGLE_USERNAME
               valueFrom:
                 secretKeyRef:
