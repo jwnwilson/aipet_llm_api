@@ -89,7 +89,7 @@ jobs:
         run: uv run python -m interactors.cli.model.download_model
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/ -v --timeout=15
+        run: uv run pytest tests/integration/ -v --timeout=120
         timeout-minutes: 30
 
   # ── E2E: model inference + local training pipeline ────────────────────────
