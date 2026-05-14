@@ -30,11 +30,12 @@ jobs:
   # ── Integration tests (including real-inference and model quality) ─────────
   integration:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      AWS_DEFAULT_REGION: us-east-1
       AIPET_TEST_MODEL_PATH: models/test_aipet.gguf
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +46,13 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen --extra dev --extra inference
+
+      - name: Configure AWS credentials (OIDC)
+        if: env.AWS_S3_BUCKET != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
 
       - name: Cache llama.cpp build
         uses: actions/cache@v4
@@ -69,7 +77,7 @@ jobs:
           key: model-test-${{ env.MODEL_VERSION }}-${{ runner.os }}
 
       - name: Download and decompress test model from S3
-        if: env.AWS_S3_BUCKET != ''
+        if: steps.cache-model.outputs.cache-hit != 'true' && env.AWS_S3_BUCKET != ''
         run: uv run python -m interactors.cli.model.download_model
 
       - name: Run integration tests
