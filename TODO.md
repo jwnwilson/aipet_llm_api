@@ -1,14 +1,8 @@
 #TODO
 
-1. Setup working vastai with end to end test
-    - Training working
-    - Validate export 
-2. Setup working runpod with end to end test
-    - Training working
-    - Validate export 
-3. Setup E2E Tests for all compute E2E to inference
-4. Setup tests with valid presaved model in S3 
-5. Fix all tests setup proper ci cd tests
+1. Setup E2E Tests for all compute E2E to inference
+2. Setup tests with valid presaved model in S3 
+3. Fix all tests setup proper ci cd tests
 
 Setup plan and execute the following in parallel:
 1. Setup Authentication
