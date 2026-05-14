@@ -1,7 +1,5 @@
 #TODO
 
-1. Fix all tests setup proper ci cd tests
-
 Setup plan and execute the following in parallel:
 1. Setup Authentication
     - Validate with tests
@@ -9,6 +7,9 @@ Setup plan and execute the following in parallel:
     - Validate with tests
 
 Next Features
+
+## Fast E2E tests
+- Re-enable E2E tests on CI/CD to run once a day or something
 
 ## LLM training platform
 - Allow user to upload training and eval data
