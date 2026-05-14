@@ -19,7 +19,7 @@ FAST_DATA_DIR   ?= data/fast
 GITHUB_REPO     ?= jwnwilson/aipet_llm_api
 TF_DIR          ?= infra/terraform
 
-.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train runpod-train vastai-train db-migrate db-revision seed-models tf-init tf-plan tf-apply tf-deploy aws-env help
+.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train runpod-train vastai-train db-migrate db-revision seed-models tf-init tf-plan tf-apply tf-deploy aws-env upload-test-model help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -232,6 +232,11 @@ db-revision: .venv ## Generate a new Alembic migration  (MSG="describe the chang
 
 seed-models: ## Seed the database with default training model configurations
 	PYTHONPATH=src uv run python -m interactors.cli.seed_models
+
+upload-test-model: ## Compress and upload models/aipet.gguf to S3 as the CI test model  (MODEL_PATH=... to override)
+	set -a && . ./.env && set +a && uv run python -m interactors.cli.model.upload_model \
+		--model-path $(MODEL_PATH) \
+		--s3-key models/test_aipet.gguf.gz
 
 aws-env: ## Refresh AWS credentials in .env from the current AWS profile
 	uv run scripts/update_aws_env.py

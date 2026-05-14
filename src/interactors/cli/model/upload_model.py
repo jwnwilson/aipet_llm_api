@@ -18,6 +18,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from tqdm import tqdm
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
@@ -64,8 +66,15 @@ def main(argv: list[str] | None = None) -> None:
     try:
         os.close(tmp_fd)
         print("Compressing … (gzip level 6, ~1–2 minutes for 1 GB)")
-        with open(model_path, "rb") as f_in, gzip.open(tmp_path, "wb", compresslevel=6) as f_out:
-            shutil.copyfileobj(f_in, f_out)
+        total = model_path.stat().st_size
+        with (
+            open(model_path, "rb") as f_in,
+            gzip.open(tmp_path, "wb", compresslevel=6) as f_out,
+            tqdm(total=total, unit="B", unit_scale=True, desc="compress") as bar,
+        ):
+            for chunk in iter(lambda: f_in.read(1 << 20), b""):
+                f_out.write(chunk)
+                bar.update(len(chunk))
 
         compressed_mb = tmp_path.stat().st_size / (1024 * 1024)
         ratio = tmp_path.stat().st_size / model_path.stat().st_size
@@ -73,7 +82,8 @@ def main(argv: list[str] | None = None) -> None:
 
         print("Uploading …")
         try:
-            storage.upload(tmp_path, args.s3_key)
+            with tqdm(total=tmp_path.stat().st_size, unit="B", unit_scale=True, desc="upload") as bar:
+                storage.upload(tmp_path, args.s3_key, callback=bar.update)
         except Exception as exc:
             print(f"ERROR: upload failed — {exc}", file=sys.stderr)
             sys.exit(1)

@@ -20,8 +20,8 @@ class S3StorageAdapter(StoragePort):
         self._bucket = bucket or os.environ["AWS_S3_BUCKET"]
         self._s3 = boto3.client("s3")
 
-    def upload(self, local_path: Path, key: str) -> None:
-        self._s3.upload_file(str(local_path), self._bucket, key)
+    def upload(self, local_path: Path, key: str, callback=None) -> None:
+        self._s3.upload_file(str(local_path), self._bucket, key, Callback=callback)
 
     def download(self, key: str, dest: Path) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
