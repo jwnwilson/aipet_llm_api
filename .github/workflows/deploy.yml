@@ -95,12 +95,11 @@ jobs:
       - name: Refresh ECR pull credentials in k8s
         run: |
           AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-            kubectl create secret docker-registry ecr-credentials \
-              --docker-server=${AWS_ACCOUNT}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com \
-              --docker-username=AWS \
-              --docker-password-stdin \
-              --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret docker-registry ecr-credentials \
+            --docker-server=${AWS_ACCOUNT}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com \
+            --docker-username=AWS \
+            --docker-password="$(aws ecr get-login-password --region ${{ env.AWS_REGION }})" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Apply k8s manifests
         run: kubectl apply -f infra/k8s/
