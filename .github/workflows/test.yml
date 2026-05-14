@@ -7,14 +7,29 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v5
         with:
-          enable-caching: true
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev --extra inference
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit/ -v
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --frozen --extra dev --extra inference
@@ -34,5 +49,5 @@ jobs:
         if: steps.cache-llama.outputs.cache-hit != 'true'
         run: make setup-llama
 
-      - name: Run unit and integration tests
-        run: uv run pytest tests/unit/ tests/integration/ -v
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v
