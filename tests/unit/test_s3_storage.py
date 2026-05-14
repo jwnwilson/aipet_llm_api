@@ -30,7 +30,19 @@ class TestS3StorageAdapterUpload:
         adapter.upload(local, "gguf/model.gguf")
 
         s3.upload_file.assert_called_once_with(
-            str(local), "test-bucket", "gguf/model.gguf"
+            str(local), "test-bucket", "gguf/model.gguf", Callback=None
+        )
+
+    def test_upload_forwards_callback(self, tmp_path):
+        adapter, s3 = _make_adapter(tmp_path)
+        local = tmp_path / "model.gguf"
+        local.write_bytes(b"weights")
+        cb = MagicMock()
+
+        adapter.upload(local, "gguf/model.gguf", callback=cb)
+
+        s3.upload_file.assert_called_once_with(
+            str(local), "test-bucket", "gguf/model.gguf", Callback=cb
         )
 
 

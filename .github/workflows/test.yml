@@ -76,6 +76,14 @@ jobs:
           path: models/test_aipet.gguf
           key: model-test-${{ env.MODEL_VERSION }}-${{ runner.os }}
 
+      - name: Verify S3 access (debug)
+        if: steps.cache-model.outputs.cache-hit != 'true' && env.AWS_S3_BUCKET != ''
+        run: |
+          echo "Caller identity:"
+          aws sts get-caller-identity
+          echo "S3 models/ listing:"
+          aws s3 ls s3://$AWS_S3_BUCKET/models/ || echo "LISTING FAILED"
+
       - name: Download and decompress test model from S3
         if: steps.cache-model.outputs.cache-hit != 'true' && env.AWS_S3_BUCKET != ''
         run: uv run python -m interactors.cli.model.download_model
