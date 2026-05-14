@@ -35,8 +35,8 @@ serve: .venv ## Start the FastAPI server  (MODEL_PATH=... make serve)
 	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run --env-file .env python -m uvicorn interactors.api.app:app \
 		--host $(HOST) --port $(PORT) --reload
 
-test: .venv ## Run unit + integration tests (fast; excludes e2e)
-	uv run python -m pytest tests/unit/ tests/integration/ -v
+test: .venv ## Run unit + integration tests (fast; excludes slow/e2e)
+	uv run python -m pytest tests/unit/ tests/integration/ -m "not slow" -v
 
 test-unit: .venv ## Run unit tests only
 	uv run python -m pytest tests/unit/ -v
@@ -44,7 +44,7 @@ test-unit: .venv ## Run unit tests only
 test-integration: .venv ## Run integration tests only (requires models/aipet.gguf)
 	uv run python -m pytest tests/integration/ -v
 
-test-e2e: .venv ## Run end-to-end tests only (tests training on platforms with GPU access; requires AWS_S3_BUCKET + VAST_API_KEY or RUNPOD_API_KEY)
+test-e2e: .venv ## Run all e2e tests including slow training tests (cloud tests skip without credentials)
 	uv run python -m pytest tests/e2e/ -v
 
 test-all: .venv ## Run all tests including slow integration tests

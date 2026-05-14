@@ -47,13 +47,14 @@ dev = [
 
 [dependency-groups]
 dev = [
+    "pytest-timeout>=2.4.0",
     "types-tqdm>=4.67.3.20260508",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-n auto --dist=loadfile"
+addopts = "-n auto --dist=loadfile --timeout=120"
 log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s %(levelname)-8s %(name)s  %(message)s"

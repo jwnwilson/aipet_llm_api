@@ -89,5 +89,66 @@ jobs:
         run: uv run python -m interactors.cli.model.download_model
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/ -v
+        run: uv run pytest tests/integration/ -v --timeout=15
+        timeout-minutes: 30
+
+  # ── E2E: model inference + local training pipeline ────────────────────────
+  # Optional — failures here do not block deployments.
+  # Runs on push to main only; OIDC is unavailable on fork PRs.
+  e2e:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+      AWS_DEFAULT_REGION: us-east-1
+      AIPET_TEST_MODEL_PATH: models/test_aipet.gguf
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev --extra inference
+
+      - name: Configure AWS credentials (OIDC)
+        if: env.AWS_S3_BUCKET != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Cache llama.cpp build
+        uses: actions/cache@v4
+        id: cache-llama
+        with:
+          path: llama.cpp
+          key: llama-cpp-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      - name: Install build tools
+        if: steps.cache-llama.outputs.cache-hit != 'true'
+        run: sudo apt-get install -y cmake build-essential
+
+      - name: Build llama.cpp
+        if: steps.cache-llama.outputs.cache-hit != 'true'
+        run: make setup-llama
+
+      - name: Cache test GGUF model
+        uses: actions/cache@v4
+        id: cache-model
+        with:
+          path: models/test_aipet.gguf
+          key: model-test-${{ env.MODEL_VERSION }}-${{ runner.os }}
+
+      - name: Download and decompress test model from S3
+        if: steps.cache-model.outputs.cache-hit != 'true' && env.AWS_S3_BUCKET != ''
+        run: uv run python -m interactors.cli.model.download_model
+
+      - name: Run E2E tests
+        run: uv run pytest tests/e2e/ -v
         timeout-minutes: 30
