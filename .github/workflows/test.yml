@@ -19,10 +19,19 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra dev --extra inference
 
+      - name: Cache llama.cpp build
+        uses: actions/cache@v4
+        id: cache-llama
+        with:
+          path: llama.cpp
+          key: llama-cpp-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
       - name: Install build tools
+        if: steps.cache-llama.outputs.cache-hit != 'true'
         run: sudo apt-get install -y cmake build-essential
 
       - name: Build llama.cpp
+        if: steps.cache-llama.outputs.cache-hit != 'true'
         run: make setup-llama
 
       - name: Run unit and integration tests
