@@ -69,7 +69,7 @@ jobs:
           key: model-test-${{ env.MODEL_VERSION }}-${{ runner.os }}
 
       - name: Download and decompress test model from S3
-        if: steps.cache-model.outputs.cache-hit != 'true' && env.AWS_S3_BUCKET != ''
+        if: env.AWS_S3_BUCKET != ''
         run: uv run python -m interactors.cli.model.download_model
 
       - name: Run integration tests

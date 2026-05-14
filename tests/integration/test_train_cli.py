@@ -37,12 +37,12 @@ class TestTrainCli:
         import subprocess
         env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src")}
         subprocess.run(
-            [sys.executable, "src/interactors/cli/generate_dataset.py",
+            [sys.executable, "src/interactors/cli/data/generate_dataset.py",
              "--data-dir", str(tmp_path), "--train-size", "20", "--eval-size", "5"],
             check=True, capture_output=True, cwd=PROJECT_ROOT, env=env,
         )
         result = subprocess.run(
-            [sys.executable, "src/interactors/cli/train.py",
+            [sys.executable, "src/interactors/cli/training/train.py",
              "--dry-run",
              "--train-data", str(tmp_path / "train.jsonl"),
              "--eval-data", str(tmp_path / "eval.jsonl"),
