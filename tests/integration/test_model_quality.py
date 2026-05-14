@@ -24,10 +24,13 @@ from adapters.inference import LlamaCppInferenceAdapter
 
 MODEL_PATH = Path(__file__).parents[2] / "models" / "aipet.gguf"
 
-pytestmark = pytest.mark.skipif(
-    not MODEL_PATH.exists(),
-    reason=f"Real model not found at {MODEL_PATH}",
-)
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.skipif(
+        not MODEL_PATH.exists(),
+        reason=f"Real model not found at {MODEL_PATH}",
+    ),
+]
 
 
 @pytest.fixture(scope="module")

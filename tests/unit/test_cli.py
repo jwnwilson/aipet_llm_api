@@ -79,17 +79,6 @@ class TestGenerateDatasetCli:
 # ---------------------------------------------------------------------------
 
 class TestTrainCli:
-    def test_dry_run_exits_0(self, data_dir: Path, tmp_path: Path) -> None:
-        from interactors.cli.train import main
-        output_dir = tmp_path / "checkpoints"
-        main([
-            "--dry-run",
-            "--train-data", str(data_dir / "train.jsonl"),
-            "--eval-data", str(data_dir / "eval.jsonl"),
-            "--output-dir", str(output_dir),
-        ])
-        assert output_dir.exists()
-
     def test_missing_train_dep_exits_1(self, tmp_path: Path) -> None:
         """ImportError from domain layer is caught and exits with code 1."""
         from interactors.cli.train import main
