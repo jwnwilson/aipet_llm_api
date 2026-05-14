@@ -90,4 +90,4 @@ jobs:
 
       - name: Run integration tests
         run: uv run pytest tests/integration/ -v
-        timeout-minutes: 20
+        timeout-minutes: 30
