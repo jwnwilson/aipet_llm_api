@@ -18,10 +18,14 @@ ENV UV_SYSTEM_PYTHON=1
 RUN uv sync --no-dev --frozen --no-install-project
 
 COPY src/ src/
-COPY models/aipet.gguf models/aipet.gguf
 
-ENV MODEL_PATH=/app/models/aipet.gguf
 ENV PYTHONPATH=/app/src
+
+# Model is downloaded at startup — do not bake it into the image.
+# Set one of:
+#   MODEL_S3_KEY  — S3 object key to download at startup (requires AWS_S3_BUCKET + credentials)
+#   MODEL_PATH    — local path for dev/testing with a volume-mounted model
+# Or seed an active model in the database with a gguf_path pointing to S3.
 
 EXPOSE 8000
 

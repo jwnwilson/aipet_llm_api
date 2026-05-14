@@ -70,7 +70,7 @@ jobs:
 
       - name: Download and decompress test model from S3
         if: steps.cache-model.outputs.cache-hit != 'true' && env.AWS_S3_BUCKET != ''
-        run: uv run python -m interactors.cli.download_model
+        run: uv run python -m interactors.cli.model.download_model
 
       - name: Run integration tests
         run: uv run pytest tests/integration/ -v

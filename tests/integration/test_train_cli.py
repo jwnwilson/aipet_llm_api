@@ -21,7 +21,7 @@ def data_dir(tmp_path: Path) -> Path:
 class TestTrainCli:
     @pytest.mark.slow
     def test_dry_run_exits_0(self, data_dir: Path, tmp_path: Path) -> None:
-        from interactors.cli.train import main
+        from interactors.cli.training.train import main
         output_dir = tmp_path / "checkpoints"
         main([
             "--dry-run",

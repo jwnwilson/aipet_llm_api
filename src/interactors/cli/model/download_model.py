@@ -4,7 +4,7 @@ Used by CI to fetch the test model when the GitHub Actions cache misses.
 Also runnable locally to simulate a cache miss.
 
 Usage:
-    uv run python -m interactors.cli.download_model
+    uv run python -m interactors.cli.model.download_model
 
 Required environment variables:
     AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION

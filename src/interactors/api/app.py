@@ -22,6 +22,20 @@ def _make_storage_adapter():
     return LocalStorageAdapter()
 
 
+def _resolve_model_path(storage) -> str:
+    """Return a local model path, downloading from S3 via MODEL_S3_KEY if configured."""
+    s3_key = os.getenv("MODEL_S3_KEY")
+    if s3_key:
+        local_path = Path("models/cache/default/model.gguf")
+        try:
+            storage.download(s3_key, local_path)
+            log.info("Downloaded model from MODEL_S3_KEY=%s to %s", s3_key, local_path)
+            return str(local_path)
+        except Exception:
+            log.warning("Could not download model from MODEL_S3_KEY=%s", s3_key, exc_info=True)
+    return os.getenv("MODEL_PATH", "models/aipet.gguf")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from adapters.auth.auth0 import Auth0Adapter
@@ -78,13 +92,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             log.info("Loading active model %s from storage key %s", active.id, active.gguf_path)
         except Exception:
             log.warning(
-                "Could not load active model %s from storage; falling back to MODEL_PATH",
+                "Could not load active model %s from storage; falling back",
                 active.id,
                 exc_info=True,
             )
-            model_path = os.getenv("MODEL_PATH", "models/aipet.gguf")
+            model_path = _resolve_model_path(storage)
     else:
-        model_path = os.getenv("MODEL_PATH", "models/aipet.gguf")
+        model_path = _resolve_model_path(storage)
 
     configure(LlamaCppInferenceAdapter(model_path=model_path))
 

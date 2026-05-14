@@ -3,7 +3,7 @@
 One-time operation — run locally whenever the model changes.
 
 Usage:
-    uv run python -m interactors.cli.upload_model
+    uv run python -m interactors.cli.model.upload_model
 
 Required environment variables:
     AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION

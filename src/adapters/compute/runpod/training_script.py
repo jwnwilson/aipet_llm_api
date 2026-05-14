@@ -106,7 +106,7 @@ def main() -> None:
 
     # Run training — streams subprocess output to logger and flushes to S3 every 20 lines
     cmd = [
-        sys.executable, "-m", "interactors.cli.train",
+        sys.executable, "-m", "interactors.cli.training.train",
         "--model", os.environ["MODEL"],
         "--epochs", os.environ["EPOCHS"],
         "--patience", os.environ["PATIENCE"],

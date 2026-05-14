@@ -53,7 +53,7 @@ for jsonl in INPUT_BASE.glob("*.jsonl"):
 # ---------------------------------------------------------------------------
 print("\n=== [cell-3] training (dry-run) ===")
 cmd = [
-    sys.executable, "-m", "interactors.cli.train",
+    sys.executable, "-m", "interactors.cli.training.train",
     "--dry-run",
     "--model", CONFIG["model"],
     "--epochs", str(CONFIG["epochs"]),
