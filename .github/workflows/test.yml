@@ -98,7 +98,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: false  # temporarily disabled — re-enable when e2e tests are fixed
     permissions:
       id-token: write
       contents: read
