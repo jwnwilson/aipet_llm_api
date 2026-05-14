@@ -11,7 +11,9 @@ from domain.models import InferenceRequest, PetStats, SceneData, SceneObject
 from adapters.inference import LlamaCppInferenceAdapter
 from adapters.prompt import parse_response
 
-MODEL_PATH = Path(__file__).parents[2] / "models" / "aipet.gguf"
+import os
+_DEFAULT_MODEL_PATH = Path(__file__).parents[2] / "models" / "test_aipet.gguf"
+MODEL_PATH = Path(os.environ.get("AIPET_TEST_MODEL_PATH", str(_DEFAULT_MODEL_PATH)))
 
 pytestmark = pytest.mark.skipif(
     not MODEL_PATH.exists(),

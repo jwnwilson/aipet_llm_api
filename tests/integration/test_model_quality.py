@@ -22,7 +22,9 @@ from domain.train.quality_report import (
 )
 from adapters.inference import LlamaCppInferenceAdapter
 
-MODEL_PATH = Path(__file__).parents[2] / "models" / "aipet.gguf"
+import os
+_DEFAULT_MODEL_PATH = Path(__file__).parents[2] / "models" / "test_aipet.gguf"
+MODEL_PATH = Path(os.environ.get("AIPET_TEST_MODEL_PATH", str(_DEFAULT_MODEL_PATH)))
 
 pytestmark = [
     pytest.mark.slow,

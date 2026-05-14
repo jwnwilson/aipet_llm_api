@@ -6,7 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # Bump this when models/aipet.gguf is replaced in S3.
+  MODEL_VERSION: "2026-05-14"
+
 jobs:
+  # ── Unit tests ────────────────────────────────────────────────────────────
   unit:
     runs-on: ubuntu-latest
     steps:
@@ -22,8 +27,15 @@ jobs:
       - name: Run unit tests
         run: uv run pytest tests/unit/ -v
 
+  # ── Integration tests (including real-inference and model quality) ─────────
   integration:
     runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      AIPET_TEST_MODEL_PATH: models/test_aipet.gguf
     steps:
       - uses: actions/checkout@v4
 
@@ -49,5 +61,17 @@ jobs:
         if: steps.cache-llama.outputs.cache-hit != 'true'
         run: make setup-llama
 
+      - name: Cache test GGUF model
+        uses: actions/cache@v4
+        id: cache-model
+        with:
+          path: models/test_aipet.gguf
+          key: model-test-${{ env.MODEL_VERSION }}-${{ runner.os }}
+
+      - name: Download and decompress test model from S3
+        if: steps.cache-model.outputs.cache-hit != 'true' && env.AWS_S3_BUCKET != ''
+        run: uv run python -m interactors.cli.download_model
+
       - name: Run integration tests
         run: uv run pytest tests/integration/ -v
+        timeout-minutes: 20
