@@ -26,10 +26,10 @@ help:
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
 .venv:
-	uv sync --extra dev --reinstall-package kaggle
+	uv sync --extra dev --extra inference --reinstall-package kaggle
 
 sync: ## Install / sync all dependencies including dev groups
-	uv sync --extra dev --reinstall-package kaggle
+	uv sync --extra dev --extra inference --reinstall-package kaggle
 
 serve: .venv ## Start the FastAPI server  (MODEL_PATH=... make serve)
 	MODEL_PATH=$(MODEL_PATH) PYTHONPATH=src uv run --env-file .env python -m uvicorn interactors.api.app:app \
