@@ -20,14 +20,12 @@ spec:
         - name: temporal-worker
           # Placeholder — overwritten by CI: kubectl set image deployment/temporal-worker temporal-worker=<ECR_URL>:<sha>
           image: <ECR_REPOSITORY_URL>:latest
-          command: ["python", "-m", "temporal.worker"]
+          command: ["python", "-m", "interactors.temporal.worker"]
           env:
             - name: PYTHONPATH
               value: /app/src
-            # Set to the LAN IP of the machine running docker-compose temporal,
-            # e.g. "192.168.1.x:7233". Update once Temporal moves into k3s.
             - name: TEMPORAL_HOST
-              value: "192.168.1.x:7233"
+              value: "temporal:7233"
             - name: AWS_DEFAULT_REGION
               value: us-east-1
             - name: AWS_S3_BUCKET
