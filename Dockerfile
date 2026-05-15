@@ -9,7 +9,7 @@ WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock alembic.ini ./
 
 # GGML_NATIVE=0 produces a portable ARM64 binary without native CPU tuning
 ENV CMAKE_ARGS="-DGGML_NATIVE=0"
