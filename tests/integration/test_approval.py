@@ -42,7 +42,7 @@ class _InMemoryUserStore(UserStorePort):
         self._approved.add(user_id)
 
     def list_approved(self) -> list[UserContext]:
-        return []
+        return [UserContext(user_id=uid) for uid in self._approved]
 
     def revoke(self, user_id: str) -> None:
         self._approved.discard(user_id)
@@ -106,3 +106,54 @@ class TestApprovedUser:
     async def test_runs_returns_200_when_approved(self, client) -> None:
         get_user_store().approve(VALID_USER.user_id)
         assert (await client.get("/api/runs", headers=VALID_HEADERS)).status_code == 200
+
+
+class TestAdminEndpoint:
+    @pytest.mark.asyncio
+    async def test_no_secret_returns_401(self, client) -> None:
+        resp = await client.post("/api/admin/users", json={"user_id": "auth0|x"})
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_wrong_secret_returns_401(self, client, monkeypatch) -> None:
+        monkeypatch.setenv("ADMIN_SECRET", "correct")
+        resp = await client.post(
+            "/api/admin/users",
+            json={"user_id": "auth0|x"},
+            headers={"X-Admin-Secret": "wrong"},
+        )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_correct_secret_approves_user(self, client, monkeypatch) -> None:
+        monkeypatch.setenv("ADMIN_SECRET", "correct")
+        resp = await client.post(
+            "/api/admin/users",
+            json={"user_id": "auth0|new", "email": "new@example.com"},
+            headers={"X-Admin-Secret": "correct"},
+        )
+        assert resp.status_code == 201
+        assert get_user_store().is_approved("auth0|new")
+
+    @pytest.mark.asyncio
+    async def test_list_approved_users(self, client, monkeypatch) -> None:
+        monkeypatch.setenv("ADMIN_SECRET", "correct")
+        get_user_store().approve("auth0|existing", "existing@example.com")
+        resp = await client.get(
+            "/api/admin/users",
+            headers={"X-Admin-Secret": "correct"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any(u["user_id"] == "auth0|existing" for u in data)
+
+    @pytest.mark.asyncio
+    async def test_revoke_user(self, client, monkeypatch) -> None:
+        monkeypatch.setenv("ADMIN_SECRET", "correct")
+        get_user_store().approve("auth0|todelete")
+        resp = await client.delete(
+            "/api/admin/users/auth0%7Ctodelete",
+            headers={"X-Admin-Secret": "correct"},
+        )
+        assert resp.status_code == 204
+        assert not get_user_store().is_approved("auth0|todelete")
