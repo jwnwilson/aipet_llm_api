@@ -89,6 +89,7 @@ jobs:
             --from-literal=aws-secret-access-key=${{ secrets.AIPET_AWS_SECRET_ACCESS_KEY }} \
             --from-literal=kaggle-username=${{ secrets.KAGGLE_USERNAME }} \
             --from-literal=kaggle-key=${{ secrets.KAGGLE_KEY }} \
+            --from-literal=cors-origins=${{ secrets.CORS_ORIGINS }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Refresh ECR pull credentials in k8s

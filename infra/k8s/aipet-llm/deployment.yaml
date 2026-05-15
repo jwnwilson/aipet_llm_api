@@ -42,6 +42,11 @@ spec:
                 secretKeyRef:
                   name: aipet-secrets
                   key: aws-secret-access-key
+            - name: CORS_ORIGINS
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: cors-origins
           resources:
             requests:
               cpu: "500m"
