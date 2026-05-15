@@ -39,7 +39,7 @@ data/*
 llama.cpp/
 
 # Terraform
-infra/terraform/.terraform/
+infra/terraform/**/.terraform/
 infra/terraform/*.tfstate
 infra/terraform/*.tfstate.backup
-infra/terraform/.terraform.lock.hcl
+infra/terraform/**/.terraform.lock.hcl

@@ -71,6 +71,34 @@ resource "aws_iam_role_policy_attachment" "github_actions_s3" {
   policy_arn = aws_iam_policy.s3_model_read.arn
 }
 
+data "aws_iam_policy_document" "terraform_state" {
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.tf_state_bucket}"]
+  }
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["arn:aws:s3:::${var.tf_state_bucket}/terraform.tfstate"]
+  }
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+    resources = ["arn:aws:dynamodb:*:*:table/aipet-llm-terraform-locks"]
+  }
+}
+
+resource "aws_iam_policy" "terraform_state" {
+  name   = "${var.repo_name}-terraform-state"
+  policy = data.aws_iam_policy_document.terraform_state.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_terraform_state" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.terraform_state.arn
+}
+
 # IAM user for the aipet application (RPi cluster + any non-OIDC workload).
 # Scoped to S3 read/write on the project bucket only.
 

@@ -18,8 +18,9 @@ FAST_MODEL      ?= HuggingFaceTB/SmolLM2-135M
 FAST_DATA_DIR   ?= data/fast
 GITHUB_REPO     ?= jwnwilson/aipet_llm_api
 TF_DIR          ?= infra/terraform
+TF_BOOTSTRAP_DIR ?= infra/terraform/bootstrap
 
-.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train runpod-train vastai-train db-migrate db-revision seed-models tf-init tf-plan tf-apply tf-deploy aws-env upload-test-model help
+.PHONY: serve sync test test-unit test-integration test-cli test-all data data-fast train train-fast evaluate evaluate-gguf evaluate-remote export export-remote evaluate-export-remote infer setup-llama docker-build docker-run docker-export docker-deploy temporal-up temporal-down temporal-worker temporal-trigger temporal-trigger-fast kaggle-train runpod-train vastai-train db-migrate db-revision seed-models tf-setup tf-init tf-plan tf-apply tf-deploy aws-env upload-test-model help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -240,6 +241,12 @@ upload-test-model: ## Compress and upload models/aipet.gguf to S3 as the CI test
 
 aws-env: ## Refresh AWS credentials in .env from the current AWS profile
 	uv run scripts/update_aws_env.py
+
+tf-setup: ## One-time bootstrap: create S3 state bucket + DynamoDB lock table, then migrate local state to S3
+	set -a && . ./.env && set +a && \
+	terraform -chdir=$(TF_BOOTSTRAP_DIR) init && \
+	terraform -chdir=$(TF_BOOTSTRAP_DIR) apply && \
+	terraform -chdir=$(TF_DIR) init -migrate-state
 
 tf-init: ## Initialise Terraform working directory
 	set -a && . ./.env && set +a && terraform -chdir=$(TF_DIR) init

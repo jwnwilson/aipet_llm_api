@@ -17,3 +17,9 @@ variable "ecr_push_policy_arn" {
   description = "ARN of the ECR push IAM policy — attached to the GitHub Actions role"
   type        = string
 }
+
+variable "tf_state_bucket" {
+  description = "S3 bucket name used for Terraform remote state — grants GitHub Actions read/write access"
+  type        = string
+  default     = "aipet-llm-terraform-state"
+}
