@@ -92,6 +92,7 @@ jobs:
             --from-literal=cors-origins=${{ secrets.CORS_ORIGINS }} \
             --from-literal=auth0-domain=${{ secrets.AUTH0_DOMAIN }} \
             --from-literal=auth0-audience=${{ secrets.AUTH0_AUDIENCE }} \
+            --from-literal=auth0-client-id=${{ secrets.AUTH0_CLIENT_ID }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Refresh ECR pull credentials in k8s
