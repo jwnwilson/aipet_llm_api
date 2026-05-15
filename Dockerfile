@@ -27,6 +27,8 @@ ENV PYTHONPATH=/app/src
 #   MODEL_PATH    — local path for dev/testing with a volume-mounted model
 # Or seed an active model in the database with a gguf_path pointing to S3.
 
+RUN mkdir -p /app/data /app/models
+
 EXPOSE 8000
 
-CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "python -m interactors.cli.db.db_migrate && uvicorn interactors.api.app:app --host 0.0.0.0 --port 8000"]

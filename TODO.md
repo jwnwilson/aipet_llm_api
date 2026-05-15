@@ -5,6 +5,7 @@ Setup plan and execute the following in parallel:
     - Validate with tests
 2. Deploy this service to kubernetes cluster
     - Validate with tests
+    - Add dns setting for aipet-llm api
 
 Next Features
 
