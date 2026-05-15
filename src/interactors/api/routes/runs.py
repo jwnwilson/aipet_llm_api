@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import uuid
@@ -79,7 +78,7 @@ def get_run_evaluation(
     report_path = Path(f"data/workflow/{run_id}/quality_report.json")
     if report_path.exists():
         try:
-            quality_report = QualityReport(**json.loads(report_path.read_text()))
+            quality_report = QualityReport.model_validate_json(report_path.read_text())
         except Exception:
             log.warning("Failed to parse quality report for run %s", run_id)
 

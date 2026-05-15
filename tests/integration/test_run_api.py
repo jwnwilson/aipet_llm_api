@@ -225,7 +225,8 @@ class TestGetRunEvaluation:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_returns_evaluation_without_report(self, client_with_model):
+    async def test_returns_evaluation_without_report(self, client_with_model, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         c, model, run_store = client_with_model
         run = run_store.create(RunConfig(model_id=model.id, workflow_id="wf-1"))
         run_store.update_status(run.id, RunStatus.COMPLETED)
@@ -268,6 +269,9 @@ class TestGetRunEvaluation:
 
         assert resp.status_code == 200
         body = resp.json()
+        assert body["run_id"] == run.id
+        assert body["status"] == RunStatus.COMPLETED.value
+        assert body["eval_valid_pct"] == pytest.approx(0.97)
         assert body["quality_report"]["passed"] is True
         assert body["quality_report"]["per_stat_accuracy"]["hunger"]["correct"] == 38
         assert body["quality_report"]["action_distribution"]["EAT"] == 50
