@@ -187,3 +187,23 @@ class AuthPort(ABC):
     @abstractmethod
     def authenticate(self, token: str) -> UserContext | None:
         """Validate the JWT and return a UserContext, or None if invalid/expired."""
+
+
+class UserStorePort(ABC):
+    """Allowlist of approved Auth0 user IDs."""
+
+    @abstractmethod
+    def is_approved(self, user_id: str) -> bool:
+        """Return True if the user is in the approved allowlist."""
+
+    @abstractmethod
+    def approve(self, user_id: str, email: str | None = None) -> None:
+        """Add user_id to the allowlist (idempotent)."""
+
+    @abstractmethod
+    def list_approved(self) -> list[UserContext]:
+        """Return all approved users."""
+
+    @abstractmethod
+    def revoke(self, user_id: str) -> None:
+        """Remove user_id from the allowlist (no-op if not present)."""
