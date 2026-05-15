@@ -122,7 +122,6 @@ from interactors.api.routes.login import router as login_router  # noqa: E402
 from interactors.api.routes.models import router as models_router  # noqa: E402
 from interactors.api.routes.runs import router as runs_router  # noqa: E402
 
-_auth0_domain = os.getenv("AUTH0_DOMAIN", "")
 _auth0_audience = os.getenv("AUTH0_AUDIENCE", "")
 _auth0_client_id = os.getenv("AUTH0_CLIENT_ID", "")
 
@@ -160,32 +159,3 @@ app.include_router(models_router)
 app.include_router(runs_router)
 app.include_router(login_router)
 
-if _auth0_domain:
-    from fastapi.openapi.utils import get_openapi
-
-    def _custom_openapi():
-        if app.openapi_schema:
-            return app.openapi_schema
-        schema = get_openapi(
-            title=app.title,
-            version=app.version,
-            routes=app.routes,
-        )
-        schema.setdefault("components", {}).setdefault("securitySchemes", {})["Auth0"] = {
-            "type": "oauth2",
-            "flows": {
-                "authorizationCode": {
-                    "authorizationUrl": f"https://{_auth0_domain}/authorize",
-                    "tokenUrl": f"https://{_auth0_domain}/oauth/token",
-                    "scopes": {
-                        "openid": "OpenID",
-                        "profile": "Profile",
-                        "email": "Email",
-                    },
-                }
-            },
-        }
-        app.openapi_schema = schema
-        return schema
-
-    app.openapi = _custom_openapi
