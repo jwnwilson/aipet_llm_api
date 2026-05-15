@@ -57,6 +57,11 @@ spec:
                 secretKeyRef:
                   name: aipet-secrets
                   key: auth0-audience
+            - name: AUTH0_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: auth0-client-id
           resources:
             requests:
               cpu: "500m"
