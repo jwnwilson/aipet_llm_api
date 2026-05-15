@@ -11,15 +11,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock ./
 
-# Install runtime deps into the system Python (no train/dev extras)
 # GGML_NATIVE=0 produces a portable ARM64 binary without native CPU tuning
 ENV CMAKE_ARGS="-DGGML_NATIVE=0"
-ENV UV_SYSTEM_PYTHON=1
-RUN uv sync --no-dev --frozen --no-install-project
+RUN uv sync --extra inference --no-dev --frozen --no-install-project
 
 COPY src/ src/
 
 ENV PYTHONPATH=/app/src
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Model is downloaded at startup — do not bake it into the image.
 # Set one of:
