@@ -26,3 +26,9 @@ variable "s3_bucket" {
   type        = string
   default     = "aipet-jwn"
 }
+
+variable "vps_ip" {
+  description = "Public IP of the VPS / inlets exit node — used for the aipet-llm-api DNS A record"
+  type        = string
+  default     = "165.22.115.52"
+}

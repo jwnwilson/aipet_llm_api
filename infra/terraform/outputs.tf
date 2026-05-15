@@ -33,3 +33,8 @@ output "aipet_aws_secret_access_key" {
   value       = aws_iam_access_key.aipet.secret
   sensitive   = true
 }
+
+output "aipet_llm_api_fqdn" {
+  description = "DNS name for the aipet LLM API"
+  value       = aws_route53_record.aipet_llm_api.fqdn
+}
