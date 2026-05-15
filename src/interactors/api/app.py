@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
-import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 log = logging.getLogger(__name__)
 
@@ -119,41 +116,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         clear_user_store()
 
 
+from interactors.api.routes.admin import router as admin_router  # noqa: E402
 from interactors.api.routes.inference import router as inference_router  # noqa: E402
 from interactors.api.routes.login import router as login_router  # noqa: E402
 from interactors.api.routes.models import router as models_router  # noqa: E402
 from interactors.api.routes.runs import router as runs_router  # noqa: E402
 
-_is_dev = os.getenv("APP_ENV") == "development"
+_auth0_domain = os.getenv("AUTH0_DOMAIN", "")
+_auth0_audience = os.getenv("AUTH0_AUDIENCE", "")
+_auth0_client_id = os.getenv("AUTH0_CLIENT_ID", "")
 
 app = FastAPI(
     title="aipet-llm inference service",
     lifespan=lifespan,
-    docs_url="/docs" if _is_dev else None,
-    redoc_url=None,
+    swagger_ui_oauth2_redirect_url="/docs/oauth2-redirect",
+    swagger_ui_init_oauth={
+        "clientId": _auth0_client_id,
+        "additionalQueryStringParams": {"audience": _auth0_audience},
+        "usePkceWithAuthorizationCodeGrant": True,
+        "scopes": "openid profile email",
+    },
 )
-
-if not _is_dev:
-    _basic = HTTPBasic()
-
-    def _docs_auth(credentials: HTTPBasicCredentials = Depends(_basic)) -> None:
-        docs_user = os.getenv("DOCS_USERNAME", "")
-        docs_pass = os.getenv("DOCS_PASSWORD", "")
-        if not docs_user or not docs_pass:
-            raise HTTPException(status_code=404)
-        ok = secrets.compare_digest(
-            credentials.username.encode(), docs_user.encode()
-        ) and secrets.compare_digest(
-            credentials.password.encode(), docs_pass.encode()
-        )
-        if not ok:
-            raise HTTPException(
-                status_code=401, headers={"WWW-Authenticate": "Basic"}
-            )
-
-    @app.get("/docs", include_in_schema=False)
-    def swagger_ui(_: None = Depends(_docs_auth)):
-        return get_swagger_ui_html(openapi_url="/openapi.json", title="aipet-llm docs")
 
 _cors_raw = os.getenv("CORS_ORIGINS", "")
 if os.getenv("APP_ENV") == "development":
@@ -171,7 +154,38 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+app.include_router(admin_router)
 app.include_router(inference_router)
 app.include_router(models_router)
 app.include_router(runs_router)
 app.include_router(login_router)
+
+if _auth0_domain:
+    from fastapi.openapi.utils import get_openapi
+
+    def _custom_openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            routes=app.routes,
+        )
+        schema.setdefault("components", {}).setdefault("securitySchemes", {})["Auth0"] = {
+            "type": "oauth2",
+            "flows": {
+                "authorizationCode": {
+                    "authorizationUrl": f"https://{_auth0_domain}/authorize",
+                    "tokenUrl": f"https://{_auth0_domain}/oauth/token",
+                    "scopes": {
+                        "openid": "OpenID",
+                        "profile": "Profile",
+                        "email": "Email",
+                    },
+                }
+            },
+        }
+        app.openapi_schema = schema
+        return schema
+
+    app.openapi = _custom_openapi
