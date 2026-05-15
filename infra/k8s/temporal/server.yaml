@@ -141,3 +141,27 @@ spec:
           env:
             - name: TEMPORAL_ADDRESS
               value: temporal:7233
+            - name: TEMPORAL_AUTH_ENABLED
+              value: "true"
+            - name: TEMPORAL_AUTH_PROVIDER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-ui-auth
+                  key: provider-url
+            - name: TEMPORAL_AUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-ui-auth
+                  key: client-id
+            - name: TEMPORAL_AUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-ui-auth
+                  key: client-secret
+            - name: TEMPORAL_AUTH_CALLBACK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-ui-auth
+                  key: callback-url
+            - name: TEMPORAL_AUTH_SCOPES
+              value: openid profile email
