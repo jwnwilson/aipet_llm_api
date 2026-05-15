@@ -249,6 +249,7 @@ class EvaluateWorkflow:
                 run_id=config.remote_run_id,
                 remote_backend=config.remote_backend,
                 output_dir=config.output_dir,
+                db_run_id=config.run_id,
             ),
             start_to_close_timeout=timedelta(minutes=30),
             heartbeat_timeout=timedelta(minutes=2),

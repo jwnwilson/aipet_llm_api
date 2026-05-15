@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# ── Stage 1: build ────────────────────────────────────────────────────────────
+FROM python:3.12-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -9,12 +10,20 @@ WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-COPY pyproject.toml uv.lock alembic.ini ./
+COPY pyproject.toml uv.lock ./
 
 # GGML_NATIVE=0 produces a portable ARM64 binary without native CPU tuning
 ENV CMAKE_ARGS="-DGGML_NATIVE=0"
 RUN uv sync --extra inference --no-dev --frozen --no-install-project
 
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY --from=builder /app/.venv /app/.venv
+
+COPY alembic.ini ./
 COPY src/ src/
 
 ENV PYTHONPATH=/app/src
