@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
@@ -10,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from domain.models import RunConfig, RunRecord, RunStatus
+from domain.models import EvaluationData, QualityReport, RunConfig, RunRecord, RunStatus
 from domain.ports import ModelStorePort, RunStorePort
 from interactors.api.auth import require_auth
 from interactors.api.deps import get_model_store, get_run_store
@@ -63,6 +64,31 @@ def get_run(run_id: str, run_store: RunStorePort = Depends(get_run_store)) -> Ru
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
+
+
+@router.get("/{run_id}/evaluation", response_model=EvaluationData)
+def get_run_evaluation(
+    run_id: str,
+    run_store: RunStorePort = Depends(get_run_store),
+) -> EvaluationData:
+    run = run_store.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    quality_report: QualityReport | None = None
+    report_path = Path(f"data/workflow/{run_id}/quality_report.json")
+    if report_path.exists():
+        try:
+            quality_report = QualityReport(**json.loads(report_path.read_text()))
+        except Exception:
+            log.warning("Failed to parse quality report for run %s", run_id)
+
+    return EvaluationData(
+        run_id=run.id,
+        status=run.status,
+        eval_valid_pct=run.eval_valid_pct,
+        quality_report=quality_report,
+    )
 
 
 @router.post("/trigger", status_code=202)

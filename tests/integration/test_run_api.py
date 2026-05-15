@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -13,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from interactors.api.app import app
 from interactors.api.deps import get_model_store, get_run_store
-from domain.models import RunStatus, TrainingModelConfig
+from domain.models import RunConfig, RunStatus, TrainingModelConfig
 from adapters.database import Base, init_db
 from adapters.database.model_store import SQLAlchemyModelStore
 from adapters.database.run_store import SQLAlchemyRunStore
@@ -215,3 +217,57 @@ class TestActivateRun:
         assert resp.status_code == 404
 
 
+class TestGetRunEvaluation:
+    @pytest.mark.asyncio
+    async def test_returns_404_for_unknown_run(self, client):
+        c, _, _ = client
+        resp = await c.get("/api/runs/does-not-exist/evaluation")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_returns_evaluation_without_report(self, client_with_model):
+        c, model, run_store = client_with_model
+        run = run_store.create(RunConfig(model_id=model.id, workflow_id="wf-1"))
+        run_store.update_status(run.id, RunStatus.COMPLETED)
+        run_store.update_eval(run.id, 0.95)
+
+        resp = await c.get(f"/api/runs/{run.id}/evaluation")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["run_id"] == run.id
+        assert body["status"] == RunStatus.COMPLETED.value
+        assert body["eval_valid_pct"] == pytest.approx(0.95)
+        assert body["quality_report"] is None
+
+    @pytest.mark.asyncio
+    async def test_returns_evaluation_with_report(self, client_with_model, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        c, model, run_store = client_with_model
+        run = run_store.create(RunConfig(model_id=model.id, workflow_id="wf-2"))
+        run_store.update_status(run.id, RunStatus.COMPLETED)
+        run_store.update_eval(run.id, 0.97)
+
+        report = {
+            "per_stat_accuracy": {
+                s: {"correct": 38, "total": 40, "accuracy": 0.95, "passed": True}
+                for s in ["hunger", "boredom", "social", "tiredness", "toilet"]
+            },
+            "target_accuracy": {"correct": 18, "total": 20, "accuracy": 0.9, "passed": True},
+            "priority_conflict": {"correct": 16, "total": 20, "accuracy": 0.8, "passed": True},
+            "fallback_accuracy": {"correct": 19, "total": 20, "accuracy": 0.95, "passed": True},
+            "action_distribution": {"EAT": 50, "SLEEP": 40},
+            "max_action_share": 0.25,
+            "passed": True,
+        }
+        report_dir = tmp_path / "data" / "workflow" / run.id
+        report_dir.mkdir(parents=True, exist_ok=True)
+        (report_dir / "quality_report.json").write_text(json.dumps(report))
+
+        resp = await c.get(f"/api/runs/{run.id}/evaluation")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["quality_report"]["passed"] is True
+        assert body["quality_report"]["per_stat_accuracy"]["hunger"]["correct"] == 38
+        assert body["quality_report"]["action_distribution"]["EAT"] == 50
