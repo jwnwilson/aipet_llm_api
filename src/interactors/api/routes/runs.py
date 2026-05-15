@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from domain.models import EvaluationData, QualityReport, RunConfig, RunRecord, RunStatus
 from domain.ports import ModelStorePort, RunStorePort
-from interactors.api.auth import require_auth
+from interactors.api.auth import require_approved
 from interactors.api.deps import get_model_store, get_run_store
 
 log = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/runs",
     tags=["runs"],
-    dependencies=[Depends(require_auth)],
+    dependencies=[Depends(require_approved)],
 )
 
 

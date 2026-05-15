@@ -9,9 +9,9 @@ from httpx import ASGITransport
 
 from domain.actions import Action
 from domain.models import InferenceRequest, InferenceResponse, UserContext
-from domain.ports import AuthPort, InferencePort
+from domain.ports import AuthPort, InferencePort, UserStorePort
 from interactors.api.app import app
-from interactors.api.deps import configure, configure_auth
+from interactors.api.deps import configure, configure_auth, configure_user_store, clear_user_store
 
 VALID_TOKEN = "valid-test-token"
 
@@ -39,17 +39,33 @@ class _FakeAuthAdapter(AuthPort):
         return None
 
 
+class _FakeUserStore(UserStorePort):
+    def is_approved(self, user_id: str) -> bool:
+        return user_id == "u1"
+
+    def approve(self, user_id: str, email: str | None = None) -> None:
+        pass
+
+    def list_approved(self) -> list[UserContext]:
+        return []
+
+    def revoke(self, user_id: str) -> None:
+        pass
+
+
 @pytest.fixture(autouse=True)
 def _auth_bypass():
     # Override the conftest _auth_bypass: remove dependency override and
-    # use a real (fake) AuthAdapter so auth is actually enforced.
-    from interactors.api.auth import require_auth
+    # use real (fake) adapters so auth is actually enforced.
+    from interactors.api.auth import require_approved
     from interactors.api.deps import clear_auth
-    app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(require_approved, None)
     configure_auth(_FakeAuthAdapter())
+    configure_user_store(_FakeUserStore())
     yield
     clear_auth()
-    app.dependency_overrides[require_auth] = lambda: None
+    clear_user_store()
+    app.dependency_overrides[require_approved] = lambda: None
 
 
 @pytest_asyncio.fixture

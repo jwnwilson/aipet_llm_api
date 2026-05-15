@@ -40,13 +40,13 @@ def kaggle_credentials() -> None:
 
 @pytest.fixture(autouse=True)
 def _auth_bypass():
-    """Bypass require_auth for all integration tests by default.
+    """Bypass require_approved for all integration tests by default.
 
-    test_auth.py overrides this fixture with the same name to test real auth enforcement.
+    test_auth.py and test_approval.py override this fixture to test real enforcement.
     """
     from interactors.api.app import app
-    from interactors.api.auth import require_auth
+    from interactors.api.auth import require_approved
 
-    app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_approved] = lambda: None
     yield
-    app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(require_approved, None)

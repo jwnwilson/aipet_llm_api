@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 log = logging.getLogger(__name__)
 
@@ -42,14 +45,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from adapters.database import init_db, make_engine
     from adapters.database.model_store import SQLAlchemyModelStore
     from adapters.database.run_store import SQLAlchemyRunStore
+    from adapters.database.user_store import SQLAlchemyUserStore
     from adapters.inference import LlamaCppInferenceAdapter
     from interactors.api.deps import (
         clear_adapter,
         clear_auth,
+        clear_user_store,
         configure,
         configure_auth,
         configure_model_store,
         configure_run_store,
+        configure_user_store,
     )
     from interactors.temporal.activities import (
         configure_run_store as configure_activity_run_store,
@@ -66,6 +72,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_run_store(run_store)
     configure_activity_run_store(run_store)
 
+    user_store = SQLAlchemyUserStore(engine)
+    configure_user_store(user_store)
+
     storage = _make_storage_adapter()
     configure_storage(storage)
 
@@ -74,9 +83,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if auth0_domain and auth0_audience:
         configure_auth(Auth0Adapter(domain=auth0_domain, audience=auth0_audience))
     elif os.getenv("APP_ENV") == "development":
-        from interactors.api.auth import require_auth
+        from interactors.api.auth import require_approved
         log.warning("AUTH0 not configured — auth disabled for local development")
-        app.dependency_overrides[require_auth] = lambda: None
+        app.dependency_overrides[require_approved] = lambda: None
     else:
         log.warning(
             "AUTH0_DOMAIN or AUTH0_AUDIENCE not set — "
@@ -107,6 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         clear_adapter()
         clear_auth()
+        clear_user_store()
 
 
 from interactors.api.routes.inference import router as inference_router  # noqa: E402
@@ -114,7 +124,36 @@ from interactors.api.routes.login import router as login_router  # noqa: E402
 from interactors.api.routes.models import router as models_router  # noqa: E402
 from interactors.api.routes.runs import router as runs_router  # noqa: E402
 
-app = FastAPI(title="aipet-llm inference service", lifespan=lifespan)
+_is_dev = os.getenv("APP_ENV") == "development"
+
+app = FastAPI(
+    title="aipet-llm inference service",
+    lifespan=lifespan,
+    docs_url="/docs" if _is_dev else None,
+    redoc_url=None,
+)
+
+if not _is_dev:
+    _basic = HTTPBasic()
+
+    def _docs_auth(credentials: HTTPBasicCredentials = Depends(_basic)) -> None:
+        docs_user = os.getenv("DOCS_USERNAME", "")
+        docs_pass = os.getenv("DOCS_PASSWORD", "")
+        if not docs_user or not docs_pass:
+            raise HTTPException(status_code=404)
+        ok = secrets.compare_digest(
+            credentials.username.encode(), docs_user.encode()
+        ) and secrets.compare_digest(
+            credentials.password.encode(), docs_pass.encode()
+        )
+        if not ok:
+            raise HTTPException(
+                status_code=401, headers={"WWW-Authenticate": "Basic"}
+            )
+
+    @app.get("/docs", include_in_schema=False)
+    def swagger_ui(_: None = Depends(_docs_auth)):
+        return get_swagger_ui_html(openapi_url="/openapi.json", title="aipet-llm docs")
 
 _cors_raw = os.getenv("CORS_ORIGINS", "")
 if os.getenv("APP_ENV") == "development":
