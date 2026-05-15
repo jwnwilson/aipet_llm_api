@@ -158,9 +158,9 @@ class TestListPendingUsers:
     async def test_returns_only_unapproved_users(self, client, monkeypatch) -> None:
         get_user_store().approve("auth0|alpha")
 
-        import adapters.auth.auth0_management as mgmt
+        import interactors.api.routes.admin as admin_module
         monkeypatch.setattr(
-            mgmt,
+            admin_module,
             "list_auth0_users",
             lambda domain, client_id, client_secret: [
                 {"user_id": "auth0|alpha", "email": "alpha@example.com"},
