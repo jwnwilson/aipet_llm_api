@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -657,8 +658,6 @@ class TestUpdateRunStatusActivity:
 # ---------------------------------------------------------------------------
 # _evaluate_local — quality report persistence
 # ---------------------------------------------------------------------------
-
-import json
 
 
 @pytest.mark.asyncio

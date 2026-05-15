@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -405,7 +406,11 @@ async def _evaluate_remote(config: EvalConfig, loop: asyncio.AbstractEventLoop) 
                 f"Remote eval not supported and checkpoint download failed: {exc}"
             ) from exc
 
-        local_config = EvalConfig(checkpoint=checkpoint_path, eval_data=config.eval_data)
+        local_config = EvalConfig(
+            checkpoint=checkpoint_path,
+            eval_data=config.eval_data,
+            db_run_id=config.db_run_id,
+        )
         return await _evaluate_local(local_config, loop)
 
 
@@ -413,12 +418,12 @@ def _normalise_report_keys(obj: object) -> object:
     """Recursively rename the JSON key 'pass' → 'passed' (pass is a Python keyword)."""
     if isinstance(obj, dict):
         return {("passed" if k == "pass" else k): _normalise_report_keys(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalise_report_keys(v) for v in obj]
     return obj
 
 
 async def _evaluate_local(config: EvalConfig, loop: asyncio.AbstractEventLoop) -> EvalResult:
-    import json as _json
-
     from domain.train.evaluate import evaluate, infer_hf, load_hf_pipeline
 
     pipe = load_hf_pipeline(config.checkpoint)
@@ -439,7 +444,7 @@ async def _evaluate_local(config: EvalConfig, loop: asyncio.AbstractEventLoop) -
         report = _normalise_report_keys(report)
         report_path = Path(f"data/workflow/{config.db_run_id}/quality_report.json")
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(_json.dumps(report))
+        report_path.write_text(json.dumps(report))
         activity.logger.info("Quality report saved: %s", report_path)
 
     return EvalResult(valid_pct=valid_pct, passed=exit_code == 0)
