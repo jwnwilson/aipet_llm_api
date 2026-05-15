@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from adapters.auth.auth0_management import list_auth0_users
 from domain.models import UserContext
 from domain.ports import UserStorePort
 from interactors.api.auth import require_auth
@@ -35,8 +36,6 @@ def list_users(
     user_store: UserStorePort = Depends(get_user_store),
 ) -> list[UserContext]:
     if status == "pending":
-        from adapters.auth.auth0_management import list_auth0_users
-
         domain = os.environ.get("AUTH0_DOMAIN", "")
         client_id = os.environ.get("AUTH0_CLIENT_ID", "")
         client_secret = os.environ.get("AUTH0_CLIENT_SECRET", "")
