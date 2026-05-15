@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aipet-llm-ingress-only
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: aipet-llm
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from the NGINX ingress controller (same namespace: default)
+    # Verify label with: kubectl get pod ingress-nginx-controller-<id> --show-labels
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+    # Allow traffic from the Temporal worker
+    - from:
+        - podSelector:
+            matchLabels:
+              app: temporal-worker

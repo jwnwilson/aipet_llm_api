@@ -3,10 +3,18 @@ kind: Ingress
 metadata:
   name: aipet-llm
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
     cert-manager.io/cluster-issuer: "letsencrypt"
+    # Rate limiting: max 10 req/s per IP, max 5 concurrent connections
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-connections: "5"
+    # Whitelist the internal health-check source so it is never rate-limited
+    nginx.ingress.kubernetes.io/limit-whitelist: "10.42.3.1/32"
+    # Drop connection (no response) for common probe paths
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location ~* \.(env|git|DS_Store|htaccess|htpasswd)($|/) { return 444; }
+      location ~* ^/(wp-login|wp-admin|phpinfo|console|server-status|adminer|phpmyadmin|v2/_catalog) { return 444; }
 spec:
+  ingressClassName: nginx
   tls:
     - hosts:
         - aipet-llm-api.jwnwilson.co.uk
