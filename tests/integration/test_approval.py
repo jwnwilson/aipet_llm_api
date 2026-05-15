@@ -151,3 +151,31 @@ class TestAdminEndpoint:
         )
         assert resp.status_code == 204
         assert not get_user_store().is_approved("auth0|todelete")
+
+
+class TestListPendingUsers:
+    @pytest.mark.asyncio
+    async def test_returns_only_unapproved_users(self, client, monkeypatch) -> None:
+        get_user_store().approve("auth0|alpha")
+
+        import adapters.auth.auth0_management as mgmt
+        monkeypatch.setattr(
+            mgmt,
+            "list_auth0_users",
+            lambda domain, client_id, client_secret: [
+                {"user_id": "auth0|alpha", "email": "alpha@example.com"},
+                {"user_id": "auth0|beta", "email": "beta@example.com"},
+            ],
+        )
+
+        resp = await client.get("/api/admin/users?status=pending", headers=VALID_HEADERS)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["user_id"] == "auth0|beta"
+        assert data[0]["status"] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_no_token_returns_401(self, client) -> None:
+        resp = await client.get("/api/admin/users?status=pending")
+        assert resp.status_code == 401
