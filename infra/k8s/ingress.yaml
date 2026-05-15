@@ -3,11 +3,15 @@ kind: Ingress
 metadata:
   name: aipet-llm
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
+  tls:
+    - hosts:
+        - aipet-llm-api.jwnwilson.co.uk
+      secretName: aipet-llm-tls
   rules:
-    # Replace with the public hostname of your inlets exit node or VPS.
-    # To accept any hostname (e.g. bare IP access), remove the `host:` line entirely.
     - host: "aipet-llm-api.jwnwilson.co.uk"
       http:
         paths:
