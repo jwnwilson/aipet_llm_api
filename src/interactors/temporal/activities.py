@@ -409,15 +409,39 @@ async def _evaluate_remote(config: EvalConfig, loop: asyncio.AbstractEventLoop) 
         return await _evaluate_local(local_config, loop)
 
 
+def _normalise_report_keys(obj: object) -> object:
+    """Recursively rename the JSON key 'pass' → 'passed' (pass is a Python keyword)."""
+    if isinstance(obj, dict):
+        return {("passed" if k == "pass" else k): _normalise_report_keys(v) for k, v in obj.items()}
+    return obj
+
+
 async def _evaluate_local(config: EvalConfig, loop: asyncio.AbstractEventLoop) -> EvalResult:
+    import json as _json
+
     from domain.train.evaluate import evaluate, infer_hf, load_hf_pipeline
 
     pipe = load_hf_pipeline(config.checkpoint)
-    infer_fn = lambda prompt: infer_hf(pipe, prompt)  # noqa: E731
+    infer_fn_raw = lambda prompt: infer_hf(pipe, prompt)  # noqa: E731
 
     exit_code, valid_pct = await loop.run_in_executor(
-        None, lambda: evaluate(Path(config.eval_data), infer_fn)
+        None, lambda: evaluate(Path(config.eval_data), infer_fn_raw)
     )
+
+    if config.db_run_id:
+        from adapters.prompt import build_prompt, parse_response
+        from domain.train.quality_report import run_quality_report
+
+        infer_fn_rich = lambda req: parse_response(infer_fn_raw(build_prompt(req)))  # noqa: E731
+        report = await loop.run_in_executor(
+            None, lambda: run_quality_report(infer_fn_rich)
+        )
+        report = _normalise_report_keys(report)
+        report_path = Path(f"data/workflow/{config.db_run_id}/quality_report.json")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(_json.dumps(report))
+        activity.logger.info("Quality report saved: %s", report_path)
+
     return EvalResult(valid_pct=valid_pct, passed=exit_code == 0)
 
 

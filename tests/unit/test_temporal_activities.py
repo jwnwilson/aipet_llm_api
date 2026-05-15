@@ -655,6 +655,78 @@ class TestUpdateRunStatusActivity:
 
 
 # ---------------------------------------------------------------------------
+# _evaluate_local — quality report persistence
+# ---------------------------------------------------------------------------
+
+import json
+
+
+@pytest.mark.asyncio
+async def test_evaluate_local_saves_quality_report(tmp_path, monkeypatch):
+    """Quality report is saved to data/workflow/{db_run_id}/quality_report.json."""
+    monkeypatch.chdir(tmp_path)
+
+    fake_report = {
+        "per_stat_accuracy": {
+            s: {"correct": 38, "total": 40, "accuracy": 0.95, "pass": True}
+            for s in ["hunger", "boredom", "social", "tiredness", "toilet"]
+        },
+        "target_accuracy": {"correct": 18, "total": 20, "accuracy": 0.9, "pass": True},
+        "priority_conflict": {"correct": 16, "total": 20, "accuracy": 0.8, "pass": True},
+        "fallback_accuracy": {"correct": 19, "total": 20, "accuracy": 0.95, "pass": True},
+        "action_distribution": {"EAT": 50, "SLEEP": 40},
+        "max_action_share": 0.25,
+        "pass": True,
+    }
+
+    with (
+        patch("domain.train.evaluate.evaluate", return_value=(0, 0.95)),
+        patch("domain.train.evaluate.load_hf_pipeline", return_value=MagicMock()),
+        patch("domain.train.evaluate.infer_hf", return_value='{"action": "IDLE"}'),
+        patch("domain.train.quality_report.run_quality_report", return_value=fake_report),
+    ):
+        result = await ENV.run(
+            evaluate_activity,
+            EvalConfig(
+                checkpoint="some-checkpoint",
+                eval_data="data/eval.jsonl",
+                db_run_id="test-run-123",
+            ),
+        )
+
+    assert result == EvalResult(valid_pct=0.95, passed=True)
+
+    report_path = tmp_path / "data" / "workflow" / "test-run-123" / "quality_report.json"
+    assert report_path.exists(), "quality_report.json was not created"
+
+    saved = json.loads(report_path.read_text())
+    # "pass" key must be normalised to "passed"
+    assert "passed" in saved
+    assert "pass" not in saved
+    assert saved["passed"] is True
+    assert "passed" in saved["per_stat_accuracy"]["hunger"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_local_skips_quality_report_without_db_run_id(tmp_path, monkeypatch):
+    """No quality_report.json is written when db_run_id is empty."""
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch("domain.train.evaluate.evaluate", return_value=(0, 0.97)),
+        patch("domain.train.evaluate.load_hf_pipeline", return_value=MagicMock()),
+        patch("domain.train.evaluate.infer_hf", return_value='{"action": "IDLE"}'),
+        patch("domain.train.quality_report.run_quality_report") as mock_qr,
+    ):
+        await ENV.run(
+            evaluate_activity,
+            EvalConfig(checkpoint="some-checkpoint", eval_data="data/eval.jsonl"),
+        )
+
+    mock_qr.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # save_gguf_path_activity
 # ---------------------------------------------------------------------------
 
