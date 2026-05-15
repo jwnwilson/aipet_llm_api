@@ -10,3 +10,11 @@ resource "aws_route53_record" "aipet_llm_api" {
   ttl     = 300
   records = [var.vps_ip]
 }
+
+resource "aws_route53_record" "temporal" {
+  zone_id = data.aws_route53_zone.zone.zone_id
+  name    = "temporal.${trimsuffix(var.zone_name, ".")}"
+  type    = "A"
+  ttl     = 300
+  records = [var.vps_ip]
+}
