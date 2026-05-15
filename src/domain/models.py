@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from domain.actions import Action
 
@@ -101,4 +101,46 @@ class RunRecord(RunConfig):
 class UserContext(BaseModel):
     user_id: str
     email: str | None = None
+
+
+class StatAccuracyResult(BaseModel):
+    correct: int
+    total: int
+    accuracy: float = Field(ge=0.0, le=1.0)
+    passed: bool
+
+
+class CategoryAccuracyResult(BaseModel):
+    correct: int
+    total: int
+    accuracy: float = Field(ge=0.0, le=1.0)
+    passed: bool
+
+
+_REQUIRED_STATS = frozenset(["hunger", "boredom", "social", "tiredness", "toilet"])
+
+
+class QualityReport(BaseModel):
+    per_stat_accuracy: dict[str, StatAccuracyResult]
+    target_accuracy: CategoryAccuracyResult
+    priority_conflict: CategoryAccuracyResult
+    fallback_accuracy: CategoryAccuracyResult
+    action_distribution: dict[str, int]
+    max_action_share: float
+    passed: bool
+
+    @field_validator("per_stat_accuracy")
+    @classmethod
+    def _all_stats_present(cls, v: dict) -> dict:
+        missing = _REQUIRED_STATS - v.keys()
+        if missing:
+            raise ValueError(f"Missing stats in per_stat_accuracy: {missing}")
+        return v
+
+
+class EvaluationData(BaseModel):
+    run_id: str
+    status: RunStatus
+    eval_valid_pct: float | None = None
+    quality_report: QualityReport | None = None
 
