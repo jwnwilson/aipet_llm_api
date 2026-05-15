@@ -39,7 +39,7 @@ for file in deployment.yaml temporal-worker-deployment.yaml; do
 done
 
 echo "=== 4. Apply k8s manifests ==="
-kubectl apply -f "$K8S_DIR/"
+kubectl apply -R -f "$K8S_DIR/"
 
 echo ""
 echo "Done. ECR URL : $REPO_URL"
