@@ -5,7 +5,7 @@ metadata:
   labels:
     app: aipet-llm
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: aipet-llm
@@ -47,6 +47,16 @@ spec:
                 secretKeyRef:
                   name: aipet-secrets
                   key: cors-origins
+            - name: AUTH0_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: auth0-domain
+            - name: AUTH0_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-secrets
+                  key: auth0-audience
           resources:
             requests:
               cpu: "500m"
