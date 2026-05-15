@@ -44,7 +44,10 @@ class SQLAlchemyUserStore(UserStorePort):
     def list_approved(self) -> list[UserContext]:
         with Session(self._engine) as db:
             rows = db.scalars(select(_ApprovedUserRow)).all()
-            return [UserContext(user_id=r.user_id, email=r.email) for r in rows]
+            return [
+                UserContext(user_id=r.user_id, email=r.email, status="approved")
+                for r in rows
+            ]
 
     def revoke(self, user_id: str) -> None:
         with Session(self._engine) as db:

@@ -101,6 +101,7 @@ class RunRecord(RunConfig):
 class UserContext(BaseModel):
     user_id: str
     email: str | None = None
+    status: Literal["pending", "approved"] | None = None
 
 
 class StatAccuracyResult(BaseModel):
