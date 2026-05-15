@@ -24,7 +24,7 @@ def require_auth(
     token: str | None = Depends(_oauth2_scheme),
     auth_port: AuthPort = Depends(get_auth),
 ) -> None:
-    if token is None:
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated", headers=_WWW_AUTH)
     if auth_port.authenticate(token) is None:
         raise HTTPException(status_code=401, detail="Invalid token", headers=_WWW_AUTH)
@@ -34,7 +34,7 @@ def get_current_user(
     token: str | None = Depends(_oauth2_scheme),
     auth_port: AuthPort = Depends(get_auth),
 ) -> UserContext:
-    if token is None:
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated", headers=_WWW_AUTH)
     user = auth_port.authenticate(token)
     if user is None:
