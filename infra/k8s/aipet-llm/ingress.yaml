@@ -9,10 +9,6 @@ metadata:
     nginx.ingress.kubernetes.io/limit-connections: "5"
     # Whitelist the internal health-check source so it is never rate-limited
     nginx.ingress.kubernetes.io/limit-whitelist: "10.42.3.1/32"
-    # Drop connection (no response) for common probe paths
-    nginx.ingress.kubernetes.io/server-snippet: |
-      location ~* \.(env|git|DS_Store|htaccess|htpasswd)($|/) { return 444; }
-      location ~* ^/(wp-login|wp-admin|phpinfo|console|server-status|adminer|phpmyadmin|v2/_catalog) { return 444; }
 spec:
   ingressClassName: nginx
   tls:
