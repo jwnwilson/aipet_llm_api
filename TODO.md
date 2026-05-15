@@ -2,9 +2,9 @@
 
 Setup plan and execute the following in parallel:
 1. Setup Authentication
-    - Validate with tests
+    - Add cli command to validate myself as a user
 2. Deploy this service to kubernetes cluster
-    - Validate with tests
+    - Validate with smoke tests against deployed urls
 
 Next Features
 
