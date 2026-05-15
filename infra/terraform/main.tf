@@ -2,70 +2,21 @@ provider "aws" {
   region = var.aws_region
 }
 
-resource "aws_ecr_repository" "aipet_llm" {
-  name                 = var.repo_name
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
+module "ecr" {
+  source                = "./modules/ecr"
+  repo_name             = var.repo_name
+  image_retention_count = var.image_retention_count
 }
 
-resource "aws_ecr_lifecycle_policy" "aipet_llm" {
-  repository = aws_ecr_repository.aipet_llm.name
-
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Retain last ${var.image_retention_count} tagged images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = var.image_retention_count
-        }
-        action = { type = "expire" }
-      },
-      {
-        rulePriority = 2
-        description  = "Expire untagged images older than 7 days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 7
-        }
-        action = { type = "expire" }
-      }
-    ]
-  })
+module "iam" {
+  source              = "./modules/iam"
+  repo_name           = var.repo_name
+  github_repo         = var.github_repo
+  s3_bucket           = var.s3_bucket
+  ecr_push_policy_arn = module.ecr.ecr_push_policy_arn
 }
 
-# IAM policy granting ECR push access — attach to your CI/CD role or user.
-data "aws_iam_policy_document" "ecr_push" {
-  statement {
-    effect    = "Allow"
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-  }
-
-  statement {
-    effect = "Allow"
-    actions = [
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:BatchGetImage",
-      "ecr:CompleteLayerUpload",
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:InitiateLayerUpload",
-      "ecr:PutImage",
-      "ecr:UploadLayerPart",
-    ]
-    resources = [aws_ecr_repository.aipet_llm.arn]
-  }
-}
-
-resource "aws_iam_policy" "ecr_push" {
-  name   = "${var.repo_name}-ecr-push"
-  policy = data.aws_iam_policy_document.ecr_push.json
+module "dns" {
+  source  = "./modules/dns"
+  vps_ip  = var.vps_ip
 }
