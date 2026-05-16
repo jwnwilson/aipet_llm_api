@@ -1,6 +1,6 @@
 # LLM API
 
-An AI pet companion that runs a lightweight LLM on a Raspberry Pi 5 (8GB). It takes simplified 3D scene data and pet stats (hunger, boredom, social, toilet, tiredness) and returns a valid action + optional target object to drive a 3D browser game character.
+An AI training and inference service designed to train save and run lightweight LLMs on a Raspberry Pi 5 cluster (8GB). It will be able to generate and accept training and eval data, 
 
 Full requirements: [docs/prd.md](docs/prd.md) | Implementation plan: [docs/plan.md](docs/plan.md)
 

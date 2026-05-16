@@ -104,8 +104,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         adapter.load()
         log.info("Model loaded into memory: %s", model_path)
-    except Exception:
-        log.warning("Could not pre-load model — will load on first request", exc_info=True)
+    except Exception as exc:
+        log.warning("Could not pre-load model — will load on first request: %s", exc)
     configure(adapter)
 
     try:
