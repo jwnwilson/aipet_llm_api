@@ -97,6 +97,15 @@ jobs:
             --from-literal=auth0-mgmt-client-secret=${{ secrets.AUTH0_MGMT_CLIENT_SECRET }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Sync aipet-db-secret in k8s
+        run: |
+          kubectl create secret generic aipet-db-secret \
+            --from-literal=postgres-user=aipet \
+            --from-literal=postgres-password="${{ secrets.AIPET_DB_PASSWORD }}" \
+            --from-literal=postgres-db=aipet \
+            --from-literal=database-url="postgresql+psycopg2://aipet:${{ secrets.AIPET_DB_PASSWORD }}@aipet-db:5432/aipet" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Refresh ECR pull credentials in k8s
         run: |
           AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
@@ -117,4 +126,7 @@ jobs:
         run: |
           kubectl rollout status deployment/aipet-llm --timeout=600s
           kubectl rollout status deployment/temporal-worker --timeout=600s
+
+      - name: Run smoke tests
+        run: ./scripts/smoke_test.sh
 
