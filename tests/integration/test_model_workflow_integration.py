@@ -98,6 +98,7 @@ async def test_workflow_updates_run_status_in_db():
         stack.enter_context(patch("domain.train.evaluate.infer_hf", return_value='{"action": "IDLE"}'))
         stack.enter_context(patch("domain.train.evaluate.evaluate", side_effect=_fake_evaluate))
         stack.enter_context(patch("domain.train.export.export"))
+        stack.enter_context(patch("adapters.storage.upload_model", side_effect=lambda s, p, k: k if k.endswith(".gz") else k + ".gz"))
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(

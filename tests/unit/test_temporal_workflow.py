@@ -42,6 +42,9 @@ def _dry_run_patches(eval_passes: bool = True):
         else:
             return (1, 0.75)
 
+    def _fake_upload_model(storage, local_path, key: str) -> str:
+        return key if key.endswith(".gz") else key + ".gz"
+
     return [
         patch("domain.train.dataset.generate", return_value=True),
         patch("domain.train.trainer.train"),
@@ -49,6 +52,7 @@ def _dry_run_patches(eval_passes: bool = True):
         patch("domain.train.evaluate.infer_hf", return_value='{"action": "IDLE"}'),
         patch("domain.train.evaluate.evaluate", side_effect=fake_evaluate),
         patch("domain.train.export.export"),
+        patch("adapters.storage.upload_model", side_effect=_fake_upload_model),
     ]
 
 
@@ -106,7 +110,7 @@ async def test_training_pipeline_workflow_e2e_pass():
     assert result.dataset_paths.eval.endswith("eval.jsonl")
     assert result.checkpoint.path != ""
     assert abs(result.eval_result.valid_pct - 0.95) < 1e-6
-    assert result.gguf_path.path.endswith(".gguf")
+    assert result.gguf_path.path.endswith(".gguf.gz")
 
 
 @pytest.mark.asyncio

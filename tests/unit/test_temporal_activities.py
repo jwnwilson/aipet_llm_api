@@ -197,13 +197,20 @@ async def test_evaluate_remote_kaggle_fallback_passes_inner_checkpoint_to_local(
 # ---------------------------------------------------------------------------
 
 
+def _fake_upload_model(storage, local_path, key: str) -> str:
+    """Test stand-in for adapters.storage.upload_model — skips compression."""
+    return key if key.endswith(".gz") else key + ".gz"
+
+
 @pytest.fixture()
-def mock_storage() -> MagicMock:
-    """Wire a fresh MagicMock StoragePort into the activities module."""
+def mock_storage():
+    """Wire a fresh MagicMock StoragePort into the activities module and patch upload_model."""
     from adapters.storage.local import LocalStorageAdapter
     storage = MagicMock(spec=LocalStorageAdapter)
     configure_storage(storage)
-    return storage
+    with patch("adapters.storage.upload_model", side_effect=_fake_upload_model) as mock_upload:
+        storage.mock_upload_model = mock_upload
+        yield storage
 
 
 @pytest.mark.asyncio
@@ -220,7 +227,7 @@ async def test_export_activity_uses_model_name_for_storage_key(mock_storage):
             ),
         )
 
-    assert result.path == "gguf/my-pet-v2.gguf"
+    assert result.path == "gguf/my-pet-v2.gguf.gz"
 
 
 @pytest.mark.asyncio
@@ -236,7 +243,7 @@ async def test_export_activity_model_name_takes_precedence_over_pipeline_run_id(
             ),
         )
 
-    assert result.path == "gguf/my-pet-v2.gguf"
+    assert result.path == "gguf/my-pet-v2.gguf.gz"
     assert "r1" not in result.path
 
 
@@ -253,10 +260,10 @@ async def test_export_activity_uses_pipeline_run_id_for_storage_key(mock_storage
             ),
         )
 
-    # The GGUFPath is the storage key returned by the activity.
-    assert result == GGUFPath(path="workflow/r1/model.gguf")
-    # Verify the artifact was handed to storage (port contract boundary).
-    mock_storage.upload.assert_called_once()
+    # The GGUFPath is the storage key returned by the activity (always .gz).
+    assert result == GGUFPath(path="workflow/r1/model.gguf.gz")
+    # Verify upload_model was called (port contract boundary).
+    mock_storage.mock_upload_model.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -272,7 +279,7 @@ async def test_export_activity_pipeline_run_id_takes_precedence_over_model_id(mo
             ),
         )
 
-    assert result.path == "workflow/run-42/model.gguf"
+    assert result.path == "workflow/run-42/model.gguf.gz"
 
 
 @pytest.mark.asyncio
@@ -283,8 +290,8 @@ async def test_export_activity_falls_back_to_model_id_when_no_pipeline_run_id(mo
             ExportConfig(checkpoint_path="models/checkpoints", gguf_output="models/gguf/m.gguf", model_id="m"),
         )
 
-    assert result == GGUFPath(path="gguf/m.gguf")
-    mock_storage.upload.assert_called_once()
+    assert result == GGUFPath(path="gguf/m.gguf.gz")
+    mock_storage.mock_upload_model.assert_called_once()
 
 
 @pytest.mark.asyncio
