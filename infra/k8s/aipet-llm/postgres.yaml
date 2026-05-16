@@ -1,0 +1,91 @@
+# --- PostgreSQL for aipet-llm application ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aipet-db
+spec:
+  clusterIP: None
+  selector:
+    app: aipet-db
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: aipet-db
+spec:
+  serviceName: aipet-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aipet-db
+  template:
+    metadata:
+      labels:
+        app: aipet-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-db-secret
+                  key: postgres-user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-db-secret
+                  key: postgres-password
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-db-secret
+                  key: postgres-db
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "aipet"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi
+---
+# Restrict PostgreSQL access: only aipet-llm pods may connect on port 5432
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aipet-db-ingress-only
+spec:
+  podSelector:
+    matchLabels:
+      app: aipet-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: aipet-llm
+      ports:
+        - port: 5432
