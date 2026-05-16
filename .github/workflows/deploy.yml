@@ -127,6 +127,15 @@ jobs:
           kubectl rollout status deployment/aipet-llm --timeout=600s
           kubectl rollout status deployment/temporal-worker --timeout=600s
 
+      - name: Install smoke test dependencies
+        run: pip install httpx
+
       - name: Run smoke tests
-        run: ./scripts/smoke_test.sh
+        env:
+          API_URL: https://aipet-llm-api.jwnwilson.co.uk
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
+          AUTH0_CLIENT_ID: ${{ secrets.AUTH0_MGMT_CLIENT_ID }}
+          AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_MGMT_CLIENT_SECRET }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
+        run: python3 ./scripts/smoke_test.py
 
