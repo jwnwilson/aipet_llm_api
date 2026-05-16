@@ -24,11 +24,12 @@ def _make_storage_adapter():
 
 def _resolve_model_path(storage) -> str:
     """Return a local model path, downloading from S3 via MODEL_S3_KEY if configured."""
+    from adapters.storage import download_model
     s3_key = os.getenv("MODEL_S3_KEY")
     if s3_key:
         local_path = Path("models/cache/default/model.gguf")
         try:
-            storage.download(s3_key, local_path)
+            download_model(storage, s3_key, local_path)
             log.info("Downloaded model from MODEL_S3_KEY=%s to %s", s3_key, local_path)
             return str(local_path)
         except Exception:
@@ -83,11 +84,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "protected endpoints will return 500 until configured"
         )
 
+    from adapters.storage import download_model
     active = store.active()
     if active and active.gguf_path:
         local_path = Path("models/cache") / active.id / "model.gguf"
         try:
-            storage.download(active.gguf_path, local_path)
+            download_model(storage, active.gguf_path, local_path)
             model_path = str(local_path)
             log.info("Loading active model %s from storage key %s", active.id, active.gguf_path)
         except Exception:

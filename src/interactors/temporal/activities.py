@@ -476,7 +476,8 @@ async def export_activity(config: ExportConfig) -> GGUFPath:
             lambda: export_gguf(checkpoint=Path(checkpoint_path), output=local_gguf),
         )
 
-        # Upload to storage so the API can retrieve it by key.
+        # Compress and upload to storage so the API can retrieve it by key.
+        from adapters.storage import upload_model
         storage = _get_storage()
         if config.model_name:
             key = f"gguf/{config.model_name}.gguf"
@@ -486,7 +487,7 @@ async def export_activity(config: ExportConfig) -> GGUFPath:
             key = f"gguf/{config.model_id}.gguf"
         else:
             key = config.gguf_output
-        storage.upload(local_gguf, key)
+        key = upload_model(storage, local_gguf, key)
 
     except SystemExit as exc:
         raise ApplicationError(f"export failed: llama.cpp setup issue (exit {exc.code})") from exc

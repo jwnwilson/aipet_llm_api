@@ -83,7 +83,7 @@ def activate_model(
         )
 
     from adapters.inference import LlamaCppInferenceAdapter
-    from adapters.storage import LocalStorageAdapter
+    from adapters.storage import LocalStorageAdapter, download_model
     from interactors.api.deps import configure, get_adapter
     from interactors.temporal.activities import _get_storage
 
@@ -92,10 +92,10 @@ def activate_model(
     except RuntimeError:
         storage = LocalStorageAdapter()
 
-    # Download from S3 before touching DB
+    # Download (and decompress if .gz) from S3 before touching DB
     local_path = Path("models/cache") / model_id / "model.gguf"
     try:
-        storage.download(model.gguf_path, local_path)
+        download_model(storage, model.gguf_path, local_path)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load model from storage: {exc}") from exc
 
