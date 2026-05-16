@@ -24,8 +24,8 @@ _ROLE_USER = "user"
 def _mgmt_creds() -> tuple[str, str, str]:
     return (
         os.environ.get("AUTH0_DOMAIN", ""),
-        os.environ.get("AUTH0_CLIENT_ID", ""),
-        os.environ.get("AUTH0_CLIENT_SECRET", ""),
+        os.environ.get("AUTH0_MGMT_CLIENT_ID", ""),
+        os.environ.get("AUTH0_MGMT_CLIENT_SECRET", ""),
     )
 
 
