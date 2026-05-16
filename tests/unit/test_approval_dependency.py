@@ -51,6 +51,10 @@ class TestRequireApproved:
         client = _make_client(USER, require_approved)
         assert client.get("/protected", headers={"Authorization": "Bearer tok"}).status_code == 200
 
+    def test_admin_role_returns_200(self) -> None:
+        client = _make_client(ADMIN, require_approved)
+        assert client.get("/protected", headers={"Authorization": "Bearer tok"}).status_code == 200
+
 
 class TestRequireAdmin:
     def test_missing_header_returns_401(self) -> None:
