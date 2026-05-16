@@ -109,7 +109,7 @@ jobs:
           sed -i "s|<ECR_REPOSITORY_URL>:latest|$IMAGE|g" \
             infra/k8s/aipet-llm/deployment.yaml \
             infra/k8s/temporal/worker.yaml
-          find infra/k8s/ -name '*.yaml' ! -name '*.example.yaml' | sort | xargs kubectl apply -f
+          find infra/k8s/ -name '*.yaml' ! -name '*.example.yaml' | sort | xargs -I{} kubectl apply -f {}
 
       - name: Wait for rollouts
         run: |
