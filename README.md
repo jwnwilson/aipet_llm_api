@@ -75,6 +75,49 @@ make export                       # convert checkpoint → models/aipet.gguf (Q4
 make evaluate-gguf                # score the GGUF model
 ```
 
+## CI/CD (GitHub Actions)
+
+The deploy workflow builds an ARM64 image, pushes it to ECR, and applies k8s manifests. It reads credentials from GitHub Actions secrets.
+
+### Required secrets
+
+| Secret | Description |
+|--------|-------------|
+| `AWS_ROLE_ARN` | IAM role for OIDC auth — `terraform -chdir=infra/terraform output -raw github_actions_role_arn` |
+| `AWS_S3_BUCKET` | S3 bucket for training artefacts |
+| `AIPET_AWS_ACCESS_KEY_ID` | AWS access key for the aipet service account |
+| `AIPET_AWS_SECRET_ACCESS_KEY` | AWS secret key for the aipet service account |
+| `AUTH0_DOMAIN` | Auth0 tenant domain (e.g. `yourapp.auth0.com`) |
+| `AUTH0_AUDIENCE` | Auth0 API audience identifier |
+| `AUTH0_CLIENT_ID` | Auth0 application client ID |
+| `CORS_ORIGINS` | Comma-separated allowed origins (e.g. `https://yourapp.com`) |
+| `KUBE_CONFIG` | Base64-encoded kubeconfig for the cluster — `base64 -i ~/.kube/config.yaml` |
+
+### Setting secrets for a new repo
+
+1. Copy `.env.example` to `.env` and fill in your values.
+2. Run the helper script:
+   ```bash
+   ./scripts/set_github_secrets.sh
+   # Or for a fork / different repo:
+   ./scripts/set_github_secrets.sh --repo owner/repo
+   ```
+   This sets all secrets that can be read from `.env`. `AWS_ROLE_ARN` and `KUBE_CONFIG` must be set manually (they are not in `.env`):
+   ```bash
+   gh secret set AWS_ROLE_ARN --body "arn:aws:iam::123456789:role/your-role"
+   gh secret set KUBE_CONFIG < <(base64 -i ~/.kube/config.yaml)
+   ```
+3. Verify:
+   ```bash
+   gh secret list
+   ```
+4. Trigger a deploy:
+   ```bash
+   gh workflow run deploy.yml
+   ```
+
+---
+
 ## Deployment (Raspberry Pi 5)
 
 ### Prerequisites
