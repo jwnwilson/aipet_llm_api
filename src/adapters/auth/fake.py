@@ -10,4 +10,4 @@ class FakeAuthAdapter(AuthPort):
     def authenticate(self, token: str) -> UserContext | None:
         if not token.strip():
             return None
-        return UserContext(user_id="dev-user", email="dev@localhost")
+        return UserContext(user_id="dev-user", email="dev@localhost", roles=["user", "admin"])

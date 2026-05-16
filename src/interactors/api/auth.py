@@ -1,4 +1,4 @@
-"""FastAPI dependencies for Auth0 JWT authentication and user approval."""
+"""FastAPI dependencies for Auth0 JWT authentication and authorisation."""
 from __future__ import annotations
 
 import os
@@ -7,8 +7,8 @@ from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2AuthorizationCodeBearer
 
 from domain.models import UserContext
-from domain.ports import AuthPort, UserStorePort
-from interactors.api.deps import get_auth, get_user_store
+from domain.ports import AuthPort
+from interactors.api.deps import get_auth
 
 _WWW_AUTH = {"WWW-Authenticate": "Bearer"}
 
@@ -42,13 +42,16 @@ def get_current_user(
     return user
 
 
-def require_approved(
-    user: UserContext = Depends(get_current_user),
-    user_store: UserStorePort = Depends(get_user_store),
-) -> UserContext:
-    if not user_store.is_approved(user.user_id):
+def require_approved(user: UserContext = Depends(get_current_user)) -> UserContext:
+    if "user" not in user.roles:
         raise HTTPException(
             status_code=403,
             detail="Access not approved. Contact an administrator.",
         )
+    return user
+
+
+def require_admin(user: UserContext = Depends(get_current_user)) -> UserContext:
+    if "admin" not in user.roles:
+        raise HTTPException(status_code=403, detail="Admin access required.")
     return user

@@ -42,17 +42,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from adapters.database import init_db, make_engine
     from adapters.database.model_store import SQLAlchemyModelStore
     from adapters.database.run_store import SQLAlchemyRunStore
-    from adapters.database.user_store import SQLAlchemyUserStore
     from adapters.inference import LlamaCppInferenceAdapter
     from interactors.api.deps import (
         clear_adapter,
         clear_auth,
-        clear_user_store,
         configure,
         configure_auth,
         configure_model_store,
         configure_run_store,
-        configure_user_store,
     )
     from interactors.temporal.activities import (
         configure_run_store as configure_activity_run_store,
@@ -69,9 +66,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_run_store(run_store)
     configure_activity_run_store(run_store)
 
-    user_store = SQLAlchemyUserStore(engine)
-    configure_user_store(user_store)
-
     storage = _make_storage_adapter()
     configure_storage(storage)
 
@@ -80,9 +74,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if auth0_domain and auth0_audience:
         configure_auth(Auth0Adapter(domain=auth0_domain, audience=auth0_audience))
     elif os.getenv("APP_ENV") == "development":
-        from interactors.api.auth import require_approved
-        log.warning("AUTH0 not configured — auth disabled for local development")
-        app.dependency_overrides[require_approved] = lambda: None
+        from adapters.auth.fake import FakeAuthAdapter
+        log.warning("AUTH0 not configured — using FakeAuthAdapter for local development")
+        configure_auth(FakeAuthAdapter())
     else:
         log.warning(
             "AUTH0_DOMAIN or AUTH0_AUDIENCE not set — "
@@ -113,7 +107,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         clear_adapter()
         clear_auth()
-        clear_user_store()
 
 
 from interactors.api.routes.admin import router as admin_router  # noqa: E402

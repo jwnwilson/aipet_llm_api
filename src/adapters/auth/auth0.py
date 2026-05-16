@@ -35,9 +35,11 @@ class Auth0Adapter(AuthPort):
             if sub is None:
                 log.debug("JWT missing sub claim")
                 return None
+            roles = payload.get("https://aipet/roles") or []
             return UserContext(
                 user_id=sub,
                 email=payload.get("email"),
+                roles=roles,
             )
         except jwt.InvalidTokenError as exc:
             log.debug("JWT validation failed: %s", type(exc).__name__)

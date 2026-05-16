@@ -24,6 +24,7 @@ def _make_token(
     email: str | None = "user@example.com",
     expired: bool = False,
     audience: str = AUDIENCE,
+    roles: list[str] | None = None,
 ) -> str:
     now = datetime.now(timezone.utc)
     exp = now - timedelta(hours=1) if expired else now + timedelta(hours=1)
@@ -36,6 +37,8 @@ def _make_token(
     }
     if email is not None:
         claims["email"] = email
+    if roles is not None:
+        claims["https://aipet/roles"] = roles
     return jwt.encode(claims, _PRIVATE_KEY, algorithm="RS256")
 
 
@@ -78,6 +81,16 @@ class TestAuthenticate:
 
     def test_garbage_string_returns_none(self, adapter):
         assert adapter.authenticate("not.a.jwt") is None
+
+    def test_roles_populated_from_custom_claim(self, adapter):
+        result = adapter.authenticate(_make_token(roles=["user", "admin"]))
+        assert result is not None
+        assert result.roles == ["user", "admin"]
+
+    def test_roles_empty_when_claim_absent(self, adapter):
+        result = adapter.authenticate(_make_token())
+        assert result is not None
+        assert result.roles == []
 
     def test_token_without_sub_returns_none(self, adapter):
         now = datetime.now(timezone.utc)

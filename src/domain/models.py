@@ -101,6 +101,7 @@ class RunRecord(RunConfig):
 class UserContext(BaseModel):
     user_id: str
     email: str | None = None
+    roles: list[str] = []
     status: Literal["pending", "approved"] | None = None
 
 

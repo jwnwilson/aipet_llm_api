@@ -1,4 +1,4 @@
-"""Admin endpoints for managing the approved-users allowlist."""
+"""Admin endpoints for managing user access via Auth0 roles."""
 from __future__ import annotations
 
 import os
@@ -7,13 +7,26 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from adapters.auth.auth0_management import list_auth0_users
+from adapters.auth.auth0_management import (
+    assign_role,
+    list_auth0_users,
+    list_users_with_role,
+    revoke_role,
+)
 from domain.models import UserContext
-from domain.ports import UserStorePort
-from interactors.api.auth import require_auth
-from interactors.api.deps import get_user_store
+from interactors.api.auth import require_admin
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+_ROLE_USER = "user"
+
+
+def _mgmt_creds() -> tuple[str, str, str]:
+    return (
+        os.environ.get("AUTH0_DOMAIN", ""),
+        os.environ.get("AUTH0_CLIENT_ID", ""),
+        os.environ.get("AUTH0_CLIENT_SECRET", ""),
+    )
 
 
 class ApproveUserRequest(BaseModel):
@@ -21,37 +34,34 @@ class ApproveUserRequest(BaseModel):
     email: str | None = None
 
 
-@router.post("/users", status_code=201, dependencies=[Depends(require_auth)])
-def approve_user(
-    payload: ApproveUserRequest,
-    user_store: UserStorePort = Depends(get_user_store),
-) -> dict:
-    user_store.approve(payload.user_id, payload.email)
+@router.post("/users", status_code=201, dependencies=[Depends(require_admin)])
+def approve_user(payload: ApproveUserRequest) -> dict:
+    domain, client_id, client_secret = _mgmt_creds()
+    assign_role(domain, client_id, client_secret, payload.user_id, _ROLE_USER)
     return {"approved": payload.user_id}
 
 
-@router.get("/users", dependencies=[Depends(require_auth)])
+@router.get("/users", dependencies=[Depends(require_admin)])
 def list_users(
     status: Literal["approved", "pending"] = Query(default="approved"),
-    user_store: UserStorePort = Depends(get_user_store),
 ) -> list[UserContext]:
-    if status == "pending":
-        domain = os.environ.get("AUTH0_DOMAIN", "")
-        client_id = os.environ.get("AUTH0_CLIENT_ID", "")
-        client_secret = os.environ.get("AUTH0_CLIENT_SECRET", "")
-        auth0_users = list_auth0_users(domain, client_id, client_secret)
-        approved_ids = {u.user_id for u in user_store.list_approved()}
+    domain, client_id, client_secret = _mgmt_creds()
+    if status == "approved":
+        users = list_users_with_role(domain, client_id, client_secret, _ROLE_USER)
         return [
-            UserContext(user_id=u["user_id"], email=u.get("email"), status="pending")
-            for u in auth0_users
-            if u["user_id"] not in approved_ids
+            UserContext(user_id=u["user_id"], email=u.get("email"), status="approved")
+            for u in users
         ]
-    return user_store.list_approved()
+    all_users = list_auth0_users(domain, client_id, client_secret)
+    approved_ids = {u["user_id"] for u in list_users_with_role(domain, client_id, client_secret, _ROLE_USER)}
+    return [
+        UserContext(user_id=u["user_id"], email=u.get("email"), status="pending")
+        for u in all_users
+        if u["user_id"] not in approved_ids
+    ]
 
 
-@router.delete("/users/{user_id}", status_code=204, dependencies=[Depends(require_auth)])
-def revoke_user(
-    user_id: str,
-    user_store: UserStorePort = Depends(get_user_store),
-) -> None:
-    user_store.revoke(user_id)
+@router.delete("/users/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
+def revoke_user(user_id: str) -> None:
+    domain, client_id, client_secret = _mgmt_creds()
+    revoke_role(domain, client_id, client_secret, user_id, _ROLE_USER)

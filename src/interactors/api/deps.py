@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.ports import AuthPort, InferencePort, ModelStorePort, RunStorePort, UserStorePort
+from domain.ports import AuthPort, InferencePort, ModelStorePort, RunStorePort
 
 # ---------------------------------------------------------------------------
 # Inference adapter
@@ -86,24 +86,3 @@ def clear_auth() -> None:
     _auth_port = None
 
 
-# ---------------------------------------------------------------------------
-# User store
-# ---------------------------------------------------------------------------
-
-_user_store: UserStorePort | None = None
-
-
-def get_user_store() -> UserStorePort:
-    if _user_store is None:
-        raise RuntimeError("UserStorePort has not been configured.")
-    return _user_store
-
-
-def configure_user_store(store: UserStorePort) -> None:
-    global _user_store
-    _user_store = store
-
-
-def clear_user_store() -> None:
-    global _user_store
-    _user_store = None
