@@ -72,6 +72,11 @@ spec:
                 secretKeyRef:
                   name: aipet-secrets
                   key: auth0-mgmt-client-secret
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-db-secret
+                  key: database-url
           resources:
             requests:
               cpu: "500m"
