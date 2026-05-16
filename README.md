@@ -90,6 +90,8 @@ The deploy workflow builds an ARM64 image, pushes it to ECR, and applies k8s man
 | `AUTH0_DOMAIN` | Auth0 tenant domain (e.g. `yourapp.auth0.com`) |
 | `AUTH0_AUDIENCE` | Auth0 API audience identifier |
 | `AUTH0_CLIENT_ID` | Auth0 application client ID |
+| `AUTH0_MGMT_CLIENT_ID` | Auth0 M2M app client ID (for Management API role assignment) |
+| `AUTH0_MGMT_CLIENT_SECRET` | Auth0 M2M app client secret |
 | `CORS_ORIGINS` | Comma-separated allowed origins (e.g. `https://yourapp.com`) |
 | `KUBE_CONFIG` | Base64-encoded kubeconfig for the cluster — `base64 -i ~/.kube/config.yaml` |
 

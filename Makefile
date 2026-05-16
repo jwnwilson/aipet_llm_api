@@ -260,7 +260,8 @@ tf-apply: ## Apply infrastructure changes  (GITHUB_REPO=owner/repo to override)
 
 k8s-apply-secrets: ## Apply gitignored k8s secret files to the cluster  (KUBECONFIG to override)
 	kubectl --kubeconfig $(KUBECONFIG) apply \
-		-f infra/k8s/temporal/temporal-ui-auth.secret.yaml
+		-f infra/k8s/temporal/temporal-ui-auth.secret.yaml \
+		-f infra/k8s/aipet-llm/aipet-secrets.secret.yaml
 
 tf-deploy: tf-apply ## Apply infra then set AWS_ROLE_ARN secret on GitHub  (requires gh CLI)
 	set -a && . ./.env && set +a && gh secret set AWS_ROLE_ARN \
