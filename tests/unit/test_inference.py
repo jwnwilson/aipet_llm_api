@@ -176,6 +176,51 @@ class TestLazyModelLoading:
 
 
 # ---------------------------------------------------------------------------
+# Tests: lifecycle methods (load / release)
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycleMethods:
+    def test_load_eagerly_populates_llm(self) -> None:
+        """load() must populate _llm without requiring an infer() call."""
+        with patch("llama_cpp.Llama", return_value=MagicMock()) as mock_cls:
+            adapter = _make_adapter()
+            assert adapter._llm is None
+            adapter.load()
+            assert adapter._llm is not None
+            mock_cls.assert_called_once()
+
+    def test_load_is_noop_when_already_loaded(self) -> None:
+        """Calling load() a second time must not re-instantiate the model."""
+        with patch("llama_cpp.Llama", return_value=MagicMock()) as mock_cls:
+            adapter = _make_adapter()
+            adapter.load()
+            first_llm = adapter._llm
+            adapter.load()
+            assert adapter._llm is first_llm
+            mock_cls.assert_called_once()
+
+    def test_release_clears_llm_reference(self) -> None:
+        """release() must set _llm to None so the model can be garbage-collected."""
+        with patch("llama_cpp.Llama", return_value=MagicMock()):
+            adapter = _make_adapter()
+            adapter.load()
+            assert adapter._llm is not None
+            adapter.release()
+            assert adapter._llm is None
+
+    def test_reload_after_release_creates_new_instance(self) -> None:
+        """load() after release() must load the model again."""
+        with patch("llama_cpp.Llama", return_value=MagicMock()) as mock_cls:
+            adapter = _make_adapter()
+            adapter.load()
+            adapter.release()
+            adapter.load()
+            assert adapter._llm is not None
+            assert mock_cls.call_count == 2
+
+
+# ---------------------------------------------------------------------------
 # _ensure_target tests (domain rule: adapter must provide a valid target)
 # ---------------------------------------------------------------------------
 

@@ -10,6 +10,8 @@ Next Features
 - Re-enable E2E tests on CI/CD to run once a day or something
 
 ## LLM training platform
+- Convert into a generic llm training platform
+- Add llm-ui to this project
 - Allow user to upload training and eval data
 - Select a model
 - Select a platform to train on

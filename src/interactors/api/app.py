@@ -100,7 +100,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         model_path = _resolve_model_path(storage)
 
-    configure(LlamaCppInferenceAdapter(model_path=model_path))
+    adapter = LlamaCppInferenceAdapter(model_path=model_path)
+    try:
+        adapter.load()
+        log.info("Model loaded into memory: %s", model_path)
+    except Exception:
+        log.warning("Could not pre-load model — will load on first request", exc_info=True)
+    configure(adapter)
 
     try:
         yield

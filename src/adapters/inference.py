@@ -95,6 +95,18 @@ class LlamaCppInferenceAdapter(InferencePort):
             self._llm = self._load_model()
         return self._llm
 
+    # ------------------------------------------------------------------
+    # Lifecycle helpers
+    # ------------------------------------------------------------------
+
+    def load(self) -> None:
+        """Eagerly load the model into RAM. No-op if already loaded."""
+        self._get_llm()
+
+    def release(self) -> None:
+        """Drop the in-memory model, freeing RAM."""
+        self._llm = None
+
     def _ensure_target(self, response: InferenceResponse, request: InferenceRequest) -> InferenceResponse:
         """Guarantee the response has a valid target for actions that require one.
 

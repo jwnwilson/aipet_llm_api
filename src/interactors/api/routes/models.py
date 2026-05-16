@@ -72,7 +72,8 @@ def activate_model(
     model_id: str,
     store: ModelStorePort = Depends(get_model_store),
 ) -> TrainingModel:
-    model = store.activate(model_id)
+    # Validate before any DB or memory mutations
+    model = store.get(model_id)
     if model is None:
         raise HTTPException(status_code=404, detail="Model not found")
     if not model.gguf_path:
@@ -83,7 +84,7 @@ def activate_model(
 
     from adapters.inference import LlamaCppInferenceAdapter
     from adapters.storage import LocalStorageAdapter
-    from interactors.api.deps import configure
+    from interactors.api.deps import configure, get_adapter
     from interactors.temporal.activities import _get_storage
 
     try:
@@ -91,12 +92,28 @@ def activate_model(
     except RuntimeError:
         storage = LocalStorageAdapter()
 
-    local_path = Path("models/cache") / model.id / "model.gguf"
+    # Download from S3 before touching DB
+    local_path = Path("models/cache") / model_id / "model.gguf"
     try:
         storage.download(model.gguf_path, local_path)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load model from storage: {exc}") from exc
 
-    configure(LlamaCppInferenceAdapter(model_path=str(local_path)))
-    log.info("Activated model %s — gguf_path=%s", model.id, model.gguf_path)
+    # Mutate DB only after download succeeded
+    model = store.activate(model_id)
+
+    # Release old model from RAM
+    try:
+        old = get_adapter()
+        if isinstance(old, LlamaCppInferenceAdapter):
+            old.release()
+    except RuntimeError:
+        pass  # no adapter configured yet
+
+    # Eagerly load new model into RAM
+    new_adapter = LlamaCppInferenceAdapter(model_path=str(local_path))
+    new_adapter.load()
+    configure(new_adapter)
+
+    log.info("Activated model %s — gguf_path=%s", model_id, model.gguf_path)
     return model

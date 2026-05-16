@@ -6,6 +6,8 @@ import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from adapters.inference import LlamaCppInferenceAdapter
+
 import httpx
 import pytest
 import pytest_asyncio
@@ -314,3 +316,96 @@ class TestGetRun:
     async def test_unknown_run_id_returns_404(self, client):
         resp = await client.get("/api/runs/does-not-exist")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# TestActivateModel
+# ---------------------------------------------------------------------------
+
+_GGUF_CONFIG = {**_VALID_CONFIG, "gguf_path": "s3/model.gguf"}
+
+
+class TestActivateModel:
+    @pytest.mark.asyncio
+    async def test_unknown_model_returns_404(self, client):
+        resp = await client.post("/api/models/does-not-exist/activate")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_model_without_gguf_returns_409_and_db_unchanged(self, client):
+        resp = await client.post("/api/models", json=_VALID_CONFIG)
+        model_id = resp.json()["id"]
+
+        activate_resp = await client.post(f"/api/models/{model_id}/activate")
+        assert activate_resp.status_code == 409
+
+        # DB must NOT have been mutated — model must remain inactive
+        model = (await client.get(f"/api/models/{model_id}")).json()
+        assert model["is_active"] is False
+
+    @pytest.mark.asyncio
+    async def test_storage_failure_returns_500_and_db_unchanged(self, client):
+        resp = await client.post("/api/models", json=_GGUF_CONFIG)
+        model_id = resp.json()["id"]
+
+        mock_storage = MagicMock()
+        mock_storage.download.side_effect = RuntimeError("S3 error")
+
+        with patch("interactors.temporal.activities._get_storage", return_value=mock_storage):
+            activate_resp = await client.post(f"/api/models/{model_id}/activate")
+
+        assert activate_resp.status_code == 500
+
+        # DB must NOT have been mutated — model must remain inactive
+        model = (await client.get(f"/api/models/{model_id}")).json()
+        assert model["is_active"] is False
+
+    @pytest.mark.asyncio
+    async def test_successful_activation_sets_active_deactivates_others(self, client):
+        r1 = await client.post("/api/models", json={**_GGUF_CONFIG, "name": "model-1"})
+        model1_id = r1.json()["id"]
+        r2 = await client.post("/api/models", json={**_GGUF_CONFIG, "name": "model-2"})
+        model2_id = r2.json()["id"]
+
+        mock_storage = MagicMock()
+        mock_adapter = MagicMock()
+
+        with (
+            patch("interactors.temporal.activities._get_storage", return_value=mock_storage),
+            patch("adapters.inference.LlamaCppInferenceAdapter", return_value=mock_adapter),
+            patch("interactors.api.deps.get_adapter", side_effect=RuntimeError("no adapter")),
+            patch("interactors.api.deps.configure"),
+        ):
+            resp = await client.post(f"/api/models/{model2_id}/activate")
+
+        assert resp.status_code == 200
+        assert resp.json()["id"] == model2_id
+
+        model1 = (await client.get(f"/api/models/{model1_id}")).json()
+        model2 = (await client.get(f"/api/models/{model2_id}")).json()
+        assert model1["is_active"] is False
+        assert model2["is_active"] is True
+
+        mock_storage.download.assert_called_once()
+        mock_adapter.load.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_successful_activation_releases_old_adapter(self, client):
+        resp = await client.post("/api/models", json=_GGUF_CONFIG)
+        model_id = resp.json()["id"]
+
+        mock_storage = MagicMock()
+        old_adapter = LlamaCppInferenceAdapter(model_path="/fake/old.gguf")
+        old_adapter._llm = MagicMock()  # simulate loaded model in RAM
+
+        with (
+            patch("interactors.temporal.activities._get_storage", return_value=mock_storage),
+            patch("adapters.inference.LlamaCppInferenceAdapter._load_model", return_value=MagicMock()),
+            patch("adapters.inference.LlamaCppInferenceAdapter._get_llama_cpp", return_value=MagicMock()),
+            patch("interactors.api.deps.get_adapter", return_value=old_adapter),
+            patch("interactors.api.deps.configure"),
+        ):
+            resp = await client.post(f"/api/models/{model_id}/activate")
+
+        assert resp.status_code == 200
+        assert old_adapter._llm is None

@@ -1,4 +1,4 @@
-# aipet-llm
+# LLM API
 
 An AI pet companion that runs a lightweight LLM on a Raspberry Pi 5 (8GB). It takes simplified 3D scene data and pet stats (hunger, boredom, social, toilet, tiredness) and returns a valid action + optional target object to drive a 3D browser game character.
 

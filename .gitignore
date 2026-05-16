@@ -43,6 +43,4 @@ infra/terraform/**/.terraform/
 infra/terraform/*.tfstate
 infra/terraform/*.tfstate.backup
 infra/terraform/**/.terraform.lock.hcl
-infra/k8s/temporal/temporal-ui-auth.secret.yaml
-infra/k8s/aipet-llm/aipet-secrets.secret.yaml
-infra/k8s/aipet-llm/aipet-db.secret.yaml
+*.secret.yaml
