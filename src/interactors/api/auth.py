@@ -43,7 +43,7 @@ def get_current_user(
 
 
 def require_approved(user: UserContext = Depends(get_current_user)) -> UserContext:
-    if "user" not in user.roles:
+    if "user" not in user.roles or "admin" not in user.roles:
         raise HTTPException(
             status_code=403,
             detail="Access not approved. Contact an administrator.",
