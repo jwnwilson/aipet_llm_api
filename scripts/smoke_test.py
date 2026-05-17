@@ -32,8 +32,8 @@ def main() -> None:
 
     api_url = require_env("API_URL").rstrip("/")
     auth0_domain = require_env("AUTH0_DOMAIN")
-    auth0_client_id = require_env("AUTH0_CLIENT_ID")
-    auth0_client_secret = require_env("AUTH0_CLIENT_SECRET")
+    auth0_client_id = require_env("AUTH0_MGMT_CLIENT_ID")
+    auth0_client_secret = require_env("AUTH0_MGMT_CLIENT_SECRET")
     auth0_audience = require_env("AUTH0_AUDIENCE")
 
     client = httpx.Client(timeout=30)
