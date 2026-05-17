@@ -32,47 +32,47 @@ spec:
             - name: AWS_S3_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: aws-s3-bucket
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: aws-access-key-id
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: aws-secret-access-key
             - name: CORS_ORIGINS
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: cors-origins
             - name: AUTH0_DOMAIN
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: auth0-domain
             - name: AUTH0_AUDIENCE
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: auth0-audience
             - name: AUTH0_CLIENT_ID
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: auth0-client-id
             - name: AUTH0_MGMT_CLIENT_ID
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: auth0-mgmt-client-id
             - name: AUTH0_MGMT_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: auth0-mgmt-client-secret
             - name: DATABASE_URL
               valueFrom:

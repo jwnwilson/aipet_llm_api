@@ -31,40 +31,40 @@ spec:
             - name: AWS_S3_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: aws-s3-bucket
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: aws-access-key-id
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: aws-secret-access-key
             - name: KAGGLE_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: kaggle-username
                   optional: true
             - name: KAGGLE_KEY
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: kaggle-key
                   optional: true
             - name: REMOTE_HOST
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: remote-host
                   optional: true
             - name: REMOTE_USER
               valueFrom:
                 secretKeyRef:
-                  name: aipet-secrets
+                  name: aipet-llm-secrets
                   key: remote-user
                   optional: true
           resources:

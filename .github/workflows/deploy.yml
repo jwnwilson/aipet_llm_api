@@ -81,9 +81,9 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
 
-      - name: Sync aipet-secrets in k8s
+      - name: Sync aipet-llm-secrets in k8s
         run: |
-          kubectl create secret generic aipet-secrets \
+          kubectl create secret generic aipet-llm-secrets \
             --from-literal=aws-s3-bucket=${{ secrets.AWS_S3_BUCKET }} \
             --from-literal=aws-access-key-id=${{ secrets.AIPET_AWS_ACCESS_KEY_ID }} \
             --from-literal=aws-secret-access-key=${{ secrets.AIPET_AWS_SECRET_ACCESS_KEY }} \
