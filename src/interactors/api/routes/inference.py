@@ -26,6 +26,8 @@ async def infer(
     request: InferenceRequest,
     adapter: InferencePort = Depends(get_adapter),
 ) -> InferenceResponse:
+    if os.getenv("INFERENCE_DISABLED", "").lower() in ("1", "true", "yes"):
+        raise HTTPException(status_code=503, detail={"error": "inference_disabled"})
     loop = asyncio.get_event_loop()
     async with _infer_semaphore:
         try:
