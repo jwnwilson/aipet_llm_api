@@ -79,6 +79,8 @@ spec:
                 secretKeyRef:
                   name: aipet-db-secret
                   key: database-url
+            - name: TEMPORAL_HOST
+              value: temporal:7233
           resources:
             requests:
               cpu: "1"
