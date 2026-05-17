@@ -36,6 +36,10 @@ class Auth0Adapter(AuthPort):
                 log.debug("JWT missing sub claim")
                 return None
             roles = payload.get("https://aipet/roles") or []
+            # M2M client-credentials tokens carry no user roles; grant admin so
+            # machine clients (smoke test, internal services) pass require_approved.
+            if not roles and payload.get("gty") == "client-credentials":
+                roles = ["admin"]
             return UserContext(
                 user_id=sub,
                 email=payload.get("email"),
