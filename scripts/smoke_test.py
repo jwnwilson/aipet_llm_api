@@ -39,9 +39,14 @@ def main() -> None:
     client = httpx.Client(timeout=30)
 
     # 1. Authenticate via Auth0 M2M client credentials
-    print("-- Authenticating via Auth0...")
+    token_url = f"https://{auth0_domain}/oauth/token"
+    client_id_hint = auth0_client_id[:6] + "..." if len(auth0_client_id) > 6 else auth0_client_id
+    print(f"-- Authenticating via Auth0...")
+    print(f"   token_url : {token_url}")
+    print(f"   client_id : {client_id_hint}")
+    print(f"   audience  : {auth0_audience}")
     token_resp = client.post(
-        f"https://{auth0_domain}/oauth/token",
+        token_url,
         json={
             "grant_type": "client_credentials",
             "client_id": auth0_client_id,
@@ -49,9 +54,10 @@ def main() -> None:
             "audience": auth0_audience,
         },
     )
+    print(f"   status    : {token_resp.status_code}")
     if token_resp.status_code != 200:
         print(f"ERROR: Auth0 token exchange failed ({token_resp.status_code})", file=sys.stderr)
-        print(token_resp.text, file=sys.stderr)
+        print(f"   response  : {token_resp.text}", file=sys.stderr)
         sys.exit(1)
     access_token = token_resp.json()["access_token"]
     auth_headers = {"Authorization": f"Bearer {access_token}"}
