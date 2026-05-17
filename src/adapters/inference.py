@@ -82,11 +82,15 @@ class LlamaCppInferenceAdapter(InferencePort):
 
     def _load_model(self) -> Any:
         """Instantiate and return the Llama model (called once, lazily)."""
+        import os
         llama_cpp = self._get_llama_cpp()
-        log.info("Loading GGUF model from %s", self._model_path)
+        # Leave one core free for the event loop and health probes.
+        n_threads = max(1, (os.cpu_count() or 4) - 1)
+        log.info("Loading GGUF model from %s (n_threads=%d)", self._model_path, n_threads)
         return llama_cpp.Llama(
             model_path=self._model_path,
             n_ctx=self._context_size,
+            n_threads=n_threads,
             verbose=False,
         )
 

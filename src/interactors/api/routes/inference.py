@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -16,17 +17,22 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# One inference at a time — concurrent calls on RPi thrash the CPU.
+_infer_semaphore = asyncio.Semaphore(1)
+
 
 @router.post("/infer", response_model=InferenceResponse, dependencies=[Depends(require_approved)])
-def infer(
+async def infer(
     request: InferenceRequest,
     adapter: InferencePort = Depends(get_adapter),
 ) -> InferenceResponse:
-    try:
-        return adapter.infer(request)
-    except Exception:
-        log.exception("Unexpected error during inference")
-        raise HTTPException(status_code=500, detail={"error": "inference_failed"})
+    loop = asyncio.get_event_loop()
+    async with _infer_semaphore:
+        try:
+            return await loop.run_in_executor(None, adapter.infer, request)
+        except Exception:
+            log.exception("Unexpected error during inference")
+            raise HTTPException(status_code=500, detail={"error": "inference_failed"})
 
 
 @router.get("/health")
