@@ -89,7 +89,7 @@ def main() -> None:
             "tiredness": 0.4,
         },
     }
-    infer = check("POST /infer", client.post(f"{api_url}/infer", json=infer_payload, headers=auth_headers))
+    infer = check("POST /infer", client.post(f"{api_url}/infer", json=infer_payload, headers=auth_headers, timeout=120))
     print(f"OK — action={infer['action']}\n")
 
     # 6. Database tables via kubectl
