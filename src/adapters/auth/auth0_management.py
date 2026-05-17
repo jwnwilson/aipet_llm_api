@@ -77,7 +77,8 @@ def revoke_role(domain: str, client_id: str, client_secret: str, user_id: str, r
     """Remove a role from a user by role name."""
     token = _get_mgmt_token(domain, client_id, client_secret)
     role_id = _get_role_id(token, domain, role_name)
-    resp = httpx.delete(
+    resp = httpx.request(
+        "DELETE",
         f"https://{domain}/api/v2/users/{user_id}/roles",
         headers={"Authorization": f"Bearer {token}"},
         json={"roles": [role_id]},
