@@ -4,19 +4,25 @@
 
 ## Problem
 
-I want to build an API which can run a lightweight LLM able to run on a raspberry pii. The LLMs task will be to power an AI pet game, it will take in simplified 3D scene data and also the pet's stats like: hunger, boredom, social, toilet, tiredness. The response will return a desired "action" which should be one of a few presets and object in the scene it wants to interfact with. This will drive a ai pet character in a 3D scene.
-
-As the product develops I want to develop the LLM into an AIpet agent which will be given access to tools / skills to allow it to query the scene for the closest object it wants to interact with.
+I want a servie that will allow me to build, manage and access multiple custom lightweight llm models that I can access from different projects securely.
 
 ## Vision
 
-We have an AIpet LLM running on an API that powers interesting behaviour for a 3D browser game. The behaviour has grown complex enough to similate the behaviour of a digital pet that can interact with player avatars.
+I want to build an llm training and hosting service which can train and run a lightweight LLM able on a raspberry pii k8 cluster. 
+
+This will have a UI that users can log into, select a model, upload training and eval data and trigger training for a new model. The UI will run eval on the model and show th results. The user will then be able to select a model to be available by API. The service will setup the model for inference via API and allow a user to access it with an API key.
 
 ## Core Features
 
 <!-- What must the product do? Use MoSCoW: Must / Should / Could / Won't -->
 
 ### Must have
+- Ability to create Model per user in ui
+- Ability to see runs per user in ui
+- Ability to see evals per user in ui
+- Ability to load new models from S3 into APIs and users be able to run them
+
+- First training challenge is an llm pet with the following needs
 - Consistent schema for scene data, pet needs and the pet response that can be used by an AIPet game to power an AI pet.
 - Be able to train a small LLM that can run efficiently on a Raspberry Pi 5 (8GB)
 - Have a FastAPI interface for the model
