@@ -15,6 +15,7 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: aipet-llm
+  ECR_TEMPORAL_UI_REPOSITORY: aipet-temporal-ui
 
 jobs:
   # ── Build: push ARM64 image to ECR ────────────────────────────────────────
@@ -115,11 +116,27 @@ jobs:
             --docker-password="$(aws ecr get-login-password --region ${{ env.AWS_REGION }})" \
             --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Mirror Temporal UI image to ECR
+        run: |
+          AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+            docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+          docker buildx imagetools create \
+            -t "${ECR_REGISTRY}/${{ env.ECR_TEMPORAL_UI_REPOSITORY }}:latest" \
+            temporalio/ui:latest
+          echo "TEMPORAL_UI_IMAGE=${ECR_REGISTRY}/${{ env.ECR_TEMPORAL_UI_REPOSITORY }}:latest" >> "$GITHUB_ENV"
+
       - name: Apply k8s manifests
         run: |
           sed -i "s|<ECR_REPOSITORY_URL>:latest|$IMAGE|g" \
             infra/k8s/aipet-llm/deployment.yaml \
             infra/k8s/temporal/worker.yaml
+          sed -i "s|<TEMPORAL_UI_IMAGE>|$TEMPORAL_UI_IMAGE|g" \
+            infra/k8s/temporal/server.yaml
           # Apply and wait for the database before rolling out the app so that
           # db_migrate can resolve the "aipet-db" hostname on first boot.
           kubectl apply -f infra/k8s/aipet-llm/postgres.yaml

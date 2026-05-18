@@ -18,7 +18,7 @@ spec:
         app: aipet-llm
     spec:
       imagePullSecrets:
-        - name: ecr-credentials
+        - name: docker-auth
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

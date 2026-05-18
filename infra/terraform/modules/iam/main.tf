@@ -50,6 +50,12 @@ resource "aws_iam_role_policy_attachment" "github_actions_ecr" {
   policy_arn = var.ecr_push_policy_arn
 }
 
+resource "aws_iam_role_policy_attachment" "github_actions_ecr_extra" {
+  for_each   = toset(var.extra_ecr_push_policy_arns)
+  role       = aws_iam_role.github_actions.name
+  policy_arn = each.value
+}
+
 data "aws_iam_policy_document" "s3_model_read" {
   statement {
     effect  = "Allow"

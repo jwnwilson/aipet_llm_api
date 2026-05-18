@@ -18,6 +18,12 @@ variable "ecr_push_policy_arn" {
   type        = string
 }
 
+variable "extra_ecr_push_policy_arns" {
+  description = "Additional ECR push policy ARNs to attach to the GitHub Actions role"
+  type        = list(string)
+  default     = []
+}
+
 variable "tf_state_bucket" {
   description = "S3 bucket name used for Terraform remote state — grants GitHub Actions read/write access"
   type        = string
