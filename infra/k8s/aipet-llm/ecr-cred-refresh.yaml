@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecr-cred-refresh
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ecr-cred-refresh
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "patch", "update", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ecr-cred-refresh
+subjects:
+  - kind: ServiceAccount
+    name: ecr-cred-refresh
+    namespace: default
+roleRef:
+  kind: Role
+  name: ecr-cred-refresh
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ecr-cred-refresh
+spec:
+  schedule: "0 */6 * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: ecr-cred-refresh
+          restartPolicy: OnFailure
+          containers:
+            - name: ecr-cred-refresh
+              image: amazon/aws-cli:latest
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  curl -sL "https://dl.k8s.io/release/v1.29.4/bin/linux/arm64/kubectl" \
+                    -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
+                  AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+                  TOKEN=$(aws ecr get-login-password --region "${AWS_DEFAULT_REGION}")
+                  kubectl create secret docker-registry ecr-credentials \
+                    --docker-server="${AWS_ACCOUNT}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com" \
+                    --docker-username=AWS \
+                    --docker-password="${TOKEN}" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+              env:
+                - name: AWS_DEFAULT_REGION
+                  value: us-east-1
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aipet-llm-secrets
+                      key: aws-access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aipet-llm-secrets
+                      key: aws-secret-access-key
