@@ -55,6 +55,12 @@ spec:
                   name: aipet-llm-secrets
                   key: kaggle-key
                   optional: true
+            - name: KAGGLE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-llm-secrets
+                  key: kaggle-key
+                  optional: true
             - name: RUNPOD_API_KEY
               valueFrom:
                 secretKeyRef:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,17 +19,14 @@ from domain.ports import RemoteTrainingPort
 
 log = logging.getLogger(__name__)
 
-def _kaggle_bin() -> str:
-    found = shutil.which("kaggle")
-    if found:
-        return found
-    candidate = Path(sys.executable).parent / "kaggle"
-    if candidate.exists():
-        return str(candidate)
-    raise FileNotFoundError(
-        "kaggle CLI not found in PATH or alongside Python interpreter. "
-        "Install with: uv sync"
-    )
+
+def _slugify(name: str) -> str:
+    """Convert an arbitrary name to a Kaggle-safe slug (lowercase, hyphens, 6-50 chars)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return slug[:50] or "model"
+
+def _kaggle_cmd() -> list[str]:
+    return [sys.executable, "-c", "from kaggle.cli import main; main()"]
 
 
 _STATUS_MAP: dict[str, str] = {
@@ -69,7 +67,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
     # ------------------------------------------------------------------
 
     def submit(self, config: RemoteTrainConfig) -> str:
-        dataset_slug = f"{config.experiment_name}-data"
+        dataset_slug = _slugify(f"{config.experiment_name}-data")
         dataset_ref = f"{self._username}/{dataset_slug}"
 
         staging = self._work_dir / dataset_slug
@@ -77,11 +75,12 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         self._push_dataset(staging)
         self._wait_for_dataset(dataset_ref)
 
-        kernel_dir = self._work_dir / config.experiment_name
+        kernel_slug = _slugify(config.experiment_name)
+        kernel_dir = self._work_dir / kernel_slug
         kernel_dir.mkdir(parents=True, exist_ok=True)
         self._render_notebook(config, kernel_dir)
 
-        slug = f"{self._username}/{config.experiment_name}"
+        slug = f"{self._username}/{kernel_slug}"
         metadata = {
             "id": slug,
             "title": config.experiment_name,
@@ -95,7 +94,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         }
         (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
         subprocess.run(
-            [_kaggle_bin(), "kernels", "push", "-p", str(kernel_dir), "--accelerator", config.gpu_type],
+            [*_kaggle_cmd(),"kernels", "push", "-p", str(kernel_dir), "--accelerator", config.gpu_type],
             check=True,
         )
 
@@ -103,7 +102,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
 
     def status(self, run_id: str) -> Literal["pending", "running", "done", "failed"]:
         result = subprocess.run(
-            [_kaggle_bin(), "kernels", "status", run_id],
+            [*_kaggle_cmd(),"kernels", "status", run_id],
             capture_output=True,
             text=True,
             timeout=30,
@@ -120,7 +119,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         if detail:
             return detail
         result = subprocess.run(
-            [_kaggle_bin(), "kernels", "status", run_id],
+            [*_kaggle_cmd(),"kernels", "status", run_id],
             capture_output=True,
             text=True,
             timeout=30,
@@ -137,7 +136,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
             import tempfile
             with tempfile.TemporaryDirectory() as tmpdir:
                 subprocess.run(
-                    [_kaggle_bin(), "kernels", "output", run_id, "-p", tmpdir, "--quiet"],
+                    [*_kaggle_cmd(),"kernels", "output", run_id, "-p", tmpdir, "--quiet"],
                     capture_output=True,
                     text=True,
                     timeout=15,
@@ -163,7 +162,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
     def download(self, run_id: str, dest: Path) -> str:
         dest.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            [_kaggle_bin(), "kernels", "output", run_id, "-p", str(dest)],
+            [*_kaggle_cmd(),"kernels", "output", run_id, "-p", str(dest)],
             check=True,
         )
         archive = dest / "checkpoint.tar.gz"
@@ -178,7 +177,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         return str(dest)
 
     def eval(self, run_id: str, eval_data: str) -> tuple[float, bool]:
-        experiment_name = run_id.split("/")[-1]
+        experiment_name = _slugify(run_id.split("/")[-1])
         dataset_ref = f"{self._username}/{experiment_name}-data"
 
         eval_kernel_id = f"{experiment_name}-eval"
@@ -201,7 +200,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         }
         (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
         subprocess.run(
-            [_kaggle_bin(), "kernels", "push", "-p", str(kernel_dir), "--accelerator", "NvidiaTeslaT4"],
+            [*_kaggle_cmd(),"kernels", "push", "-p", str(kernel_dir), "--accelerator", "NvidiaTeslaT4"],
             check=True,
         )
 
@@ -219,7 +218,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         result_dir = self._work_dir / f"{eval_kernel_id}-output"
         result_dir.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            [_kaggle_bin(), "kernels", "output", eval_slug, "-p", str(result_dir)],
+            [*_kaggle_cmd(),"kernels", "output", eval_slug, "-p", str(result_dir)],
             check=True,
         )
 
@@ -272,7 +271,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         log.info("Staged files for upload: %s", staged_files)
 
         create_result = subprocess.run(
-            [_kaggle_bin(), "datasets", "create", "-p", str(staging)],
+            [*_kaggle_cmd(),"datasets", "create", "-p", str(staging)],
             capture_output=True, text=True,
         )
         create_output = (create_result.stdout + create_result.stderr).strip()
@@ -283,7 +282,7 @@ class KaggleTrainingAdapter(RemoteTrainingPort):
         else:
             log.info("Dataset exists, uploading new version … (%s)", create_output)
             version_result = subprocess.run(
-                [_kaggle_bin(), "datasets", "version", "-p", str(staging), "-m", "update"],
+                [*_kaggle_cmd(),"datasets", "version", "-p", str(staging), "-m", "update"],
                 capture_output=True, text=True,
             )
             version_output = (version_result.stdout + version_result.stderr).strip()

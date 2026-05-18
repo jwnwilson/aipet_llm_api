@@ -53,14 +53,14 @@ test-all: .venv ## Run all tests including slow integration tests
 	uv run python -m pytest tests/ -v
 
 data: ## Generate synthetic training + eval data  (DATA_DIR=... to override output path)
-	PYTHONPATH=src uv run python src/interactors/cli/generate_dataset.py --data-dir $(DATA_DIR)
+	PYTHONPATH=src uv run python src/interactors/cli/data/generate_dataset.py --data-dir $(DATA_DIR)
 
 data-fast: ## Generate tiny dataset (20 train / 10 eval) into data/fast/
-	PYTHONPATH=src uv run python src/interactors/cli/generate_dataset.py \
+	PYTHONPATH=src uv run python src/interactors/cli/data/generate_dataset.py \
 		--data-dir $(FAST_DATA_DIR) --train-size 20 --eval-size 10
 
 train-fast: data-fast ## Smoke-test: tiny model + 20-example dataset + 1 training step  (FAST_MODEL=... to override)
-	PYTHONPATH=src uv run python src/interactors/cli/train.py \
+	PYTHONPATH=src uv run python src/interactors/cli/training/train.py \
 		--dry-run \
 		--model $(FAST_MODEL) \
 		--train-data $(FAST_DATA_DIR)/train.jsonl \
@@ -68,7 +68,7 @@ train-fast: data-fast ## Smoke-test: tiny model + 20-example dataset + 1 trainin
 		--output-dir models/checkpoints-test
 
 train: ## Fine-tune the model  (DRY_RUN=1 for smoke test, DATA_DIR/OUTPUT_DIR to override paths)
-	PYTHONPATH=src uv run python src/interactors/cli/train.py \
+	PYTHONPATH=src uv run python src/interactors/cli/training/train.py \
 		$(if $(DRY_RUN),--dry-run) \
 		--train-data $(DATA_DIR)/train.jsonl \
 		--eval-data $(DATA_DIR)/eval.jsonl \
@@ -76,11 +76,11 @@ train: ## Fine-tune the model  (DRY_RUN=1 for smoke test, DATA_DIR/OUTPUT_DIR to
 		--model $(MODEL)
 
 evaluate: ## Evaluate HF checkpoint response rate  (CHECKPOINT=... to override)
-	PYTHONPATH=src uv run python src/interactors/cli/evaluate.py \
+	PYTHONPATH=src uv run python src/interactors/cli/model/evaluate.py \
 		--checkpoint $(CHECKPOINT) --eval-data $(DATA_DIR)/eval.jsonl
 
 evaluate-gguf: ## Evaluate quantised GGUF model  (MODEL_PATH=... to override)
-	PYTHONPATH=src uv run python src/interactors/cli/evaluate.py \
+	PYTHONPATH=src uv run python src/interactors/cli/model/evaluate.py \
 		--model-path $(MODEL_PATH) --eval-data $(DATA_DIR)/eval.jsonl
 
 setup-llama: ## Clone and build llama.cpp (required for make export)
@@ -94,28 +94,28 @@ setup-llama: ## Clone and build llama.cpp (required for make export)
 	@echo "\nllama.cpp ready — run 'make export' to convert your checkpoint."
 
 export: ## Convert HF checkpoint → GGUF Q4_K_M  → models/aipet.gguf
-	PYTHONPATH=src uv run python src/interactors/cli/export.py
+	PYTHONPATH=src uv run python src/interactors/cli/model/export.py
 
 evaluate-remote: ## Download checkpoint from remote and evaluate  (REMOTE_BACKEND / REMOTE_RUN_ID)
 	REMOTE_BACKEND=$(REMOTE_BACKEND) REMOTE_RUN_ID=$(REMOTE_RUN_ID) \
-	PYTHONPATH=src uv run python src/interactors/cli/evaluate.py \
+	PYTHONPATH=src uv run python src/interactors/cli/model/evaluate.py \
 		--eval-data $(DATA_DIR)/eval.jsonl
 
 export-remote: ## Download checkpoint from remote and export to GGUF  (REMOTE_BACKEND / REMOTE_RUN_ID)
 	REMOTE_BACKEND=$(REMOTE_BACKEND) REMOTE_RUN_ID=$(REMOTE_RUN_ID) \
-	PYTHONPATH=src uv run python src/interactors/cli/export.py \
+	PYTHONPATH=src uv run python src/interactors/cli/model/export.py \
 		--output $(MODEL_PATH)
 
 evaluate-export-remote: ## Download, evaluate, then export in sequence  (REMOTE_BACKEND / REMOTE_RUN_ID)
 	REMOTE_BACKEND=$(REMOTE_BACKEND) REMOTE_RUN_ID=$(REMOTE_RUN_ID) \
-	PYTHONPATH=src uv run python src/interactors/cli/evaluate.py \
+	PYTHONPATH=src uv run python src/interactors/cli/model/evaluate.py \
 		--eval-data $(DATA_DIR)/eval.jsonl && \
 	REMOTE_BACKEND=$(REMOTE_BACKEND) REMOTE_RUN_ID=$(REMOTE_RUN_ID) \
-	PYTHONPATH=src uv run python src/interactors/cli/export.py \
+	PYTHONPATH=src uv run python src/interactors/cli/model/export.py \
 		--output $(MODEL_PATH)
 
 infer: ## Run a single inference from the CLI  (MODEL_PATH=... make infer)
-	PYTHONPATH=src uv run python src/interactors/cli/infer.py --model-path $(MODEL_PATH) < $(or $(INPUT),/dev/stdin)
+	PYTHONPATH=src uv run python src/interactors/cli/model/infer.py --model-path $(MODEL_PATH) < $(or $(INPUT),/dev/stdin)
 
 docker-build: ## Build the ARM64 Docker image  (IMAGE=... to override tag)
 	docker buildx build --platform linux/arm64 -t $(IMAGE):latest --load .
@@ -144,7 +144,7 @@ temporal-worker: ## Run the Temporal activity worker locally  (requires Temporal
 	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python -m interactors.temporal.worker
 
 temporal-trigger-fast: ## Trigger a fast smoke-test pipeline via Temporal  (tiny model + 20 examples + 1 step, local backend)
-	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/interactors/cli/training/trigger_training.py \
 		--experiment-name aipet-fast-test \
 		--model $(FAST_MODEL) \
 		--train-size 20 \
@@ -153,7 +153,7 @@ temporal-trigger-fast: ## Trigger a fast smoke-test pipeline via Temporal  (tiny
 		--remote-backend kaggle
 
 temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS / PATIENCE / REMOTE_BACKEND / MODEL / SKIP_GENERATE=1)
-	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+	KAGGLE_REPO_URL=$(KAGGLE_REPO_URL) PYTHONPATH=src uv run python src/interactors/cli/training/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -162,7 +162,7 @@ temporal-trigger: ## Trigger a training pipeline workflow  (EXPERIMENT / EPOCHS 
 		$(if $(SKIP_GENERATE),--skip-generate)
 
 kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
-	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+	PYTHONPATH=src uv run python src/interactors/cli/training/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -171,7 +171,7 @@ kaggle-train: ## Trigger a Kaggle GPU training run  (EXPERIMENT / EPOCHS / PATIE
 		$(if $(SKIP_GENERATE),--skip-generate)
 
 vastai-train: ## Trigger a Vast.ai GPU training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL; requires AWS_S3_BUCKET + VAST_API_KEY)
-	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+	PYTHONPATH=src uv run python src/interactors/cli/training/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -180,7 +180,7 @@ vastai-train: ## Trigger a Vast.ai GPU training run  (EXPERIMENT / EPOCHS / PATI
 		$(if $(SKIP_GENERATE),--skip-generate)
 
 runpod-train: ## Trigger a RunPod GPU training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL; requires AWS_S3_BUCKET + RUNPOD_API_KEY)
-	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+	PYTHONPATH=src uv run python src/interactors/cli/training/trigger_training.py \
 		--experiment-name $(EXPERIMENT) \
 		--epochs $(EPOCHS) \
 		--patience $(PATIENCE) \
@@ -191,7 +191,7 @@ runpod-train: ## Trigger a RunPod GPU training run  (EXPERIMENT / EPOCHS / PATIE
 # Note: Colab training requires manual setup of a Colab notebook with the same codebase, plus Google OAuth credentials for Drive access. The `google-auth` target can be used to perform the one-time OAuth login and token caching on your local machine, which you can then copy to the Colab environment.
 # Out of scope for now
 # colab-train: ## Trigger a Google Colab training run  (EXPERIMENT / EPOCHS / PATIENCE / MODEL)
-# 	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+# 	PYTHONPATH=src uv run python src/interactors/cli/training/trigger_training.py \
 # 		--experiment-name $(EXPERIMENT) \
 # 		--epochs $(EPOCHS) \
 # 		--patience $(PATIENCE) \
@@ -206,7 +206,7 @@ runpod-train: ## Trigger a RunPod GPU training run  (EXPERIMENT / EPOCHS / PATIE
 
 # Out of scope for now
 # colab-train-fast: ## Trigger a fast smoke-test Colab run  (tiny model + 20 examples + 1 step)
-# 	PYTHONPATH=src uv run python src/interactors/cli/trigger_training.py \
+# 	PYTHONPATH=src uv run python src/interactors/cli/training/trigger_training.py \
 # 		--experiment-name aipet-colab-fast \
 # 		--model $(FAST_MODEL) \
 # 		--train-size 20 \
@@ -223,17 +223,17 @@ kaggle-notebook-local: ## Simulate full Kaggle notebook locally: stage dataset t
 	@echo "--- Running all notebook cells locally ---"
 	EXPERIMENT=$(EXPERIMENT) MODEL=$(MODEL) \
 	KAGGLE_INPUT_BASE=/tmp/kaggle-sim/input/$(EXPERIMENT)-data \
-		uv run python src/interactors/cli/run_notebook_local.py
+		uv run python src/interactors/cli/training/run_notebook_local.py
 	@echo "--- Local Kaggle notebook simulation passed ---"
 
 db-migrate: .venv ## Apply all pending Alembic migrations to data/aipet.db (auto-stamps pre-Alembic DBs)
-	PYTHONPATH=src uv run python src/interactors/cli/db_migrate.py
+	PYTHONPATH=src uv run python src/interactors/cli/db/db_migrate.py
 
 db-revision: .venv ## Generate a new Alembic migration  (MSG="describe the change")
 	PYTHONPATH=src uv run alembic revision --autogenerate -m "$(MSG)"
 
 seed-models: ## Seed the database with default training model configurations
-	PYTHONPATH=src uv run python -m interactors.cli.seed_models
+	PYTHONPATH=src uv run python -m interactors.cli.db.seed_models
 
 upload-test-model: ## Compress and upload models/aipet.gguf to S3 as the CI test model  (MODEL_PATH=... to override)
 	set -a && . ./.env && set +a && uv run python -m interactors.cli.model.upload_model \
