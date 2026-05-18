@@ -67,6 +67,11 @@ spec:
                   name: aipet-llm-secrets
                   key: remote-user
                   optional: true
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-db-secret
+                  key: database-url
           resources:
             requests:
               cpu: "250m"
