@@ -55,6 +55,18 @@ spec:
                   name: aipet-llm-secrets
                   key: kaggle-key
                   optional: true
+            - name: RUNPOD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-llm-secrets
+                  key: runpod-api-key
+                  optional: true
+            - name: VAST_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aipet-llm-secrets
+                  key: vast-api-key
+                  optional: true
             - name: REMOTE_HOST
               valueFrom:
                 secretKeyRef:
