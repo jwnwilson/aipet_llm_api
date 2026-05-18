@@ -145,7 +145,7 @@ jobs:
 
       - name: Wait for rollouts
         run: |
-          kubectl rollout status deployment/aipet-llm --timeout=600s
+          kubectl rollout status daemonset/aipet-llm --timeout=600s
           kubectl rollout status deployment/temporal-worker --timeout=600s
 
       - name: Install smoke test dependencies
