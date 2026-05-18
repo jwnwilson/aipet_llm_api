@@ -24,6 +24,12 @@ variable "extra_ecr_push_policy_arns" {
   default     = []
 }
 
+variable "ecr_pull_repo_arns" {
+  description = "ECR repository ARNs the app IAM user is allowed to pull images from"
+  type        = list(string)
+  default     = []
+}
+
 variable "tf_state_bucket" {
   description = "S3 bucket name used for Terraform remote state — grants GitHub Actions read/write access"
   type        = string

@@ -21,6 +21,7 @@ module "iam" {
   s3_bucket                  = var.s3_bucket
   ecr_push_policy_arn        = module.ecr.ecr_push_policy_arn
   extra_ecr_push_policy_arns = [module.ecr_temporal_ui.ecr_push_policy_arn]
+  ecr_pull_repo_arns         = [module.ecr.repository_arn, module.ecr_temporal_ui.repository_arn]
 }
 
 module "dns" {

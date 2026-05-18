@@ -133,6 +133,8 @@ spec:
         app: temporal-ui
     spec:
       enableServiceLinks: false
+      imagePullSecrets:
+        - name: ecr-credentials
       containers:
         - name: temporal-ui
           image: <TEMPORAL_UI_IMAGE>

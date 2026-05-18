@@ -136,6 +136,36 @@ resource "aws_iam_user_policy_attachment" "aipet_s3" {
   policy_arn = aws_iam_policy.aipet_s3.arn
 }
 
+data "aws_iam_policy_document" "aipet_ecr_pull" {
+  statement {
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = var.ecr_pull_repo_arns
+  }
+}
+
+resource "aws_iam_policy" "aipet_ecr_pull" {
+  count  = length(var.ecr_pull_repo_arns) > 0 ? 1 : 0
+  name   = "${var.repo_name}-app-ecr-pull"
+  policy = data.aws_iam_policy_document.aipet_ecr_pull.json
+}
+
+resource "aws_iam_user_policy_attachment" "aipet_ecr_pull" {
+  count      = length(var.ecr_pull_repo_arns) > 0 ? 1 : 0
+  user       = aws_iam_user.aipet.name
+  policy_arn = aws_iam_policy.aipet_ecr_pull[0].arn
+}
+
 resource "aws_iam_access_key" "aipet" {
   user = aws_iam_user.aipet.name
 }
