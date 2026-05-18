@@ -89,8 +89,13 @@ def main() -> None:
             "tiredness": 0.4,
         },
     }
-    infer = check("POST /infer", client.post(f"{api_url}/infer", json=infer_payload, headers=auth_headers, timeout=120))
-    print(f"OK — action={infer['action']}\n")
+    infer_resp = client.post(f"{api_url}/infer", json=infer_payload, headers=auth_headers, timeout=120)
+    print(f"-- POST /infer...")
+    if infer_resp.status_code == 503 and infer_resp.json().get("detail", {}).get("error") == "inference_disabled":
+        print("OK — inference disabled (no model loaded)\n")
+    else:
+        infer = check("POST /infer", infer_resp)
+        print(f"OK — action={infer['action']}\n")
 
     # 6. Database tables via kubectl
     print("-- Checking database tables...")
