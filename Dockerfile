@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 
 COPY alembic.ini ./
 COPY src/ src/
