@@ -28,7 +28,7 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 
-COPY alembic.ini ./
+COPY alembic.ini pyproject.toml uv.lock ./
 COPY src/ src/
 
 ENV PYTHONPATH=/app/src
