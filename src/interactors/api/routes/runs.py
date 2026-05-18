@@ -90,6 +90,13 @@ def get_run_evaluation(
     )
 
 
+@router.delete("/{run_id}", status_code=204)
+def delete_run(run_id: str, run_store: RunStorePort = Depends(get_run_store)) -> None:
+    deleted = run_store.delete(run_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+
 @router.post("/trigger", status_code=202)
 async def trigger_run(
     body: TriggerRunRequest,
