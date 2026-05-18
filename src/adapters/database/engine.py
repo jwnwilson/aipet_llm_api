@@ -21,7 +21,13 @@ class Base(DeclarativeBase):
 def make_engine(url: str | None = None) -> Engine:
     url = url or os.getenv("DATABASE_URL", _DEFAULT_DB)
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, connect_args=connect_args)
+    is_sqlite = url.startswith("sqlite")
+    return create_engine(
+        url,
+        connect_args=connect_args,
+        pool_pre_ping=not is_sqlite,
+        pool_recycle=1800,
+    )
 
 
 _engine: Engine | None = None
