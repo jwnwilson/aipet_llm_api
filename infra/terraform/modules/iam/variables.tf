@@ -35,3 +35,15 @@ variable "tf_state_bucket" {
   type        = string
   default     = "aipet-llm-terraform-state"
 }
+
+variable "ui_bucket_arn" {
+  description = "ARN of the S3 bucket hosting the UI static files"
+  type        = string
+  default     = ""
+}
+
+variable "ui_distribution_arn" {
+  description = "ARN of the CloudFront distribution serving the UI"
+  type        = string
+  default     = ""
+}

@@ -169,3 +169,37 @@ resource "aws_iam_user_policy_attachment" "aipet_ecr_pull" {
 resource "aws_iam_access_key" "aipet" {
   user = aws_iam_user.aipet.name
 }
+
+data "aws_iam_policy_document" "ui_deploy" {
+  count = var.ui_bucket_arn != "" ? 1 : 0
+
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [var.ui_bucket_arn]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:PutObject", "s3:DeleteObject"]
+    resources = ["${var.ui_bucket_arn}/*"]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["cloudfront:CreateInvalidation"]
+    resources = [var.ui_distribution_arn]
+  }
+}
+
+resource "aws_iam_policy" "ui_deploy" {
+  count  = var.ui_bucket_arn != "" ? 1 : 0
+  name   = "${var.repo_name}-ui-deploy"
+  policy = data.aws_iam_policy_document.ui_deploy[0].json
+}
+
+resource "aws_iam_role_policy_attachment" "ui_deploy" {
+  count      = var.ui_bucket_arn != "" ? 1 : 0
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.ui_deploy[0].arn
+}
