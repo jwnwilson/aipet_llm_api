@@ -4,265 +4,161 @@
 
 ---
 
-## EPIC-3: CI/CD Automation
+## EPIC-7: Project Consolidation
 
-> Automate build and deploy so every push to `main` ships a new image.
+> Rename the project to "llm-api" and make it a generic training platform usable beyond aipet.
 
-**Prerequisites:** AWS account with ECR + OIDC role provisioned via `infra/terraform/` (done).
+### Feature 7.1 — Rename project to llm-api
 
----
+#### TASK-7.1.1 — Remove aipet references
+Rename all `aipet`-prefixed identifiers, strings, and config values to `llm-api` equivalents throughout the codebase. Update `pyproject.toml`, `docker-compose.yml`, k8s manifests, Terraform outputs, and any hardcoded strings.
 
-### Feature 3.1 — GitHub Actions deploy pipeline
+**Outputs:** Updated `pyproject.toml`, `docker-compose.yml`, `infra/k8s/`, `infra/terraform/`, source files
 
-#### TASK-3.1.1 — Write `.github/workflows/deploy.yml`
-- Trigger: `push` to `main`; permissions `id-token: write`, `contents: read`
-- Steps: checkout → `configure-aws-credentials` (OIDC via `secrets.AWS_ROLE_ARN`, no static keys) → `amazon-ecr-login` → `docker/build-push-action` (linux/arm64, tags `:<sha>` and `:latest`, GHA layer cache) → `kubectl set image` + `kubectl rollout status --timeout=300s`
-- Read kubeconfig from `secrets.KUBECONFIG` (base64-encoded)
+#### TASK-7.1.2 — Integrate llm-ui into this repo
+Add the llm-ui frontend as a sub-project (e.g. `ui/` directory) or as a git submodule. Wire up the UI build into the Docker image or serve it via a separate container alongside the API.
 
-#### TASK-3.1.2 — First-time GitHub secrets setup
-```bash
-cd infra/terraform
-terraform init && terraform apply -var="github_repo=<owner>/aipet-llm"
-
-gh secret set AWS_ROLE_ARN --body "$(terraform output -raw github_actions_role_arn)"
-gh secret set KUBECONFIG   --body "$(cat ~/.kube/config | base64)"
-```
-
-#### TASK-3.1.3 — Update k8s deployment with real ECR URL
-```bash
-REPO=$(terraform output -raw repository_url)
-sed -i "s|<ECR_REPOSITORY_URL>|$REPO|g" ../k8s/deployment.yaml
-kubectl apply -f ../k8s/
-```
-
-#### TASK-3.1.4 — Add Terraform state files to `.gitignore`
-```
-infra/terraform/.terraform/
-infra/terraform/*.tfstate*
-infra/terraform/.terraform.lock.hcl
-```
+**Outputs:** `ui/` directory or submodule, updated `docker-compose.yml`, updated `Dockerfile` or new `ui/Dockerfile`
 
 ---
 
-## EPIC-4: Production Hardening
+## EPIC-8: LLM Training Pipeline
 
-### Feature 4.1 — Early stopping verification
+> Improve reliability, observability, and user control over the training pipeline.
 
-> `--patience` was added in Task 6.4. Verify it fires correctly and is documented.
+### Feature 8.1 — Error handling in workflows
 
-#### TASK-4.1.1 — Smoke-test
-```bash
-uv run python -m src.cli.train --dry-run --patience 1
-# Confirm EarlyStoppingCallback log line appears in output
-```
+#### TASK-8.1.1 — Update runs to "error" status with error message
+When a Temporal activity raises an unhandled exception, catch it in the workflow and call `RunStore.update()` to set `status="error"` and populate `error_msg`. Ensure the error message is surfaced in the llm-ui run list.
 
-#### TASK-4.1.2 — Document training flags in `README.md`
-Cover `--patience`, `--warmup-ratio`, `--base-model`, `--remote-backend` with example invocations.
+**Outputs:** Updated `src/interactors/temporal/workflows.py`, updated `src/interactors/temporal/activities.py`
 
----
+### Feature 8.2 — Run overrides flowing to the pipeline
 
-## EPIC-5: Auto Deployment & Model Availability
+#### TASK-8.2.1 — Investigate and fix run overrides not reaching the pipeline
+Trace the override fields from the trigger CLI / API through the Temporal workflow input to each activity. Add unit and integration tests that assert overrides (e.g. `epochs`, `base_model`, `remote_backend`) arrive correctly at the training activity.
 
-> When a model passes the ≥ 95% eval gate it should be automatically saved to cloud storage, registered in a model registry, and made testable via the API — without manual steps.
+**Outputs:** Bug fix in `src/interactors/temporal/workflows.py` or `src/interactors/temporal/activities.py`, new tests in `tests/unit/` or `tests/integration/`
 
-**Goals (from TODO):**
-- Save successful models to cloud storage (GCP GCS)
-- Register model metadata (eval score, run ID, base model, timestamp)
-- Let anyone hit an API to list, inspect, and test-infer against any registered model
-- Support activating a model (hot-swap the running inference adapter) via the API
+### Feature 8.3 — User-controlled training via UI
 
-**Prerequisites:** EPIC-1 validation complete (a ≥ 95% GGUF exists), GCP project with a GCS bucket.
+#### TASK-8.3.1 — Upload training and eval data via UI
+Add API endpoints (`POST /api/datasets/train`, `POST /api/datasets/eval`) that accept JSONL file uploads and store them via `StoragePort`. Wire up a file-upload form in llm-ui.
 
----
+**Outputs:** `src/interactors/api/routes/datasets.py`, updated `src/domain/ports.py`, UI upload component
 
-### Feature 5.1 — Cloud Storage Adapter (GCP GCS)
+#### TASK-8.3.2 — Select base model via UI
+Add a model selector to the training trigger form in llm-ui, backed by `GET /api/models` (list of registered models). Pass the selected model ID as `base_model` in the workflow trigger payload.
 
-**Fill in this section with:** bucket name/path scheme, auth approach (service account vs. ADC), and whether checkpoints as well as GGUFs should be stored.
+**Outputs:** UI model selector component, updated trigger form
 
-#### TASK-5.1.1 — `GcpStorageAdapter`
-Implement `GcpStorageAdapter` in `src/adapters/storage/gcp_storage.py` implementing `StoragePort`:
-- `upload_model(run_id, gguf_path) → str` — uploads to `gs://<GCS_BUCKET>/models/<run_id>/aipet.gguf`, returns the GCS URI
-- `download_model(run_id, dest_path) → Path` — downloads GGUF to a local path
-- `list_models() → list[str]` — returns run IDs with a stored GGUF
-- Config via env vars: `GCS_BUCKET`, `GOOGLE_APPLICATION_CREDENTIALS`
+#### TASK-8.3.3 — Select training platform via UI
+Add a platform dropdown to the training trigger form (Kaggle, RunPod, Vast.ai, SSH). Pass the selection as `remote_backend` in the workflow trigger payload.
 
-**Outputs:** `src/adapters/storage/gcp_storage.py`, `tests/unit/test_gcp_storage.py`
+**Outputs:** UI platform selector component, updated trigger form
 
-#### TASK-5.1.2 — Wire upload into `export_activity`
-After the GGUF is written, call `GcpStorageAdapter.upload_model()` when `GCS_BUCKET` is set. Log the returned GCS URI so the Temporal UI displays the artifact location.
+### Feature 8.4 — Eval improvements
 
-**Outputs:** Updated `src/interactors/temporal/activities.py`
+#### TASK-8.4.1 — Improve eval metrics and expose via API
+Extend `evaluate_activity` to produce richer per-action metrics (precision, recall, confusion matrix). Persist eval results to the DB and expose them via `GET /api/runs/{run_id}/eval`.
+
+**Outputs:** Updated `src/domain/train/evaluate.py`, updated `src/interactors/temporal/activities.py`, new route in `src/interactors/api/routes/runs.py`
+
+#### TASK-8.4.2 — Display eval results in llm-ui
+Add an eval results panel to the run detail page in llm-ui showing per-action accuracy and the overall pass/fail gate result.
+
+**Outputs:** UI eval results component
 
 ---
 
-### Feature 5.2 — Model Registry
+## EPIC-9: Better LLM API Architecture
 
-**Fill in this section with:** whether to use the existing SQLAlchemy DB or a separate store (e.g. GCS metadata JSON), and what fields matter most for filtering/sorting in the UI.
+> Decouple model loading from startup, support multiple simultaneously active models, and add per-model auto-scaling.
 
-#### TASK-5.2.1 — `ModelRecord` schema and DB table
-Add to `src/domain/models.py`:
-```python
-class ModelRecord(BaseModel):
-    run_id: str
-    eval_score: float
-    base_model: str       # e.g. "HuggingFaceTB/SmolLM2-1.7B"
-    epochs: int
-    created_at: datetime
-    gcs_uri: str          # gs:// path to the GGUF
-    is_active: bool       # currently loaded by the inference adapter
-```
-Add an Alembic migration for the `model_records` table.
+### Feature 9.1 — Decouple model loading from API startup
 
-**Outputs:** Updated `src/domain/models.py`, new Alembic migration
+#### TASK-9.1.1 — Load model lazily on first inference request
+Remove blocking model load from the FastAPI lifespan. Instead, load the model on the first call to `POST /infer` and return HTTP 503 (`Retry-After`) while loading is in progress. API `/health` must return 200 immediately.
 
-#### TASK-5.2.2 — `ModelRegistryPort` + SQL adapter
-Add to `src/domain/ports.py`:
-- `register(record: ModelRecord) → None`
-- `list_models() → list[ModelRecord]`
-- `set_active(run_id: str) → ModelRecord`
-- `get_active() → ModelRecord | None`
+**Outputs:** Updated `src/interactors/api/app.py`, updated `src/adapters/inference.py`
 
-Implement `SqlModelRegistryAdapter` in `src/adapters/database/model_registry.py`.
+### Feature 9.2 — Per-model container architecture
 
-**Outputs:** Updated `src/domain/ports.py`, `src/adapters/database/model_registry.py`, `tests/unit/test_model_registry.py`
+#### TASK-9.2.1 — Spin up a dedicated container per active model
+Design a controller (k8s operator or simple reconciler) that, when a model is activated, creates a k8s `Deployment` for that model requesting appropriate memory based on GGUF size. The main API proxies inference requests to the correct model pod.
 
----
+**Outputs:** `infra/k8s/model-deployment-template.yaml`, controller logic in `src/interactors/` or as a separate service
 
-### Feature 5.3 — Model Management API Endpoints
+#### TASK-9.2.2 — Scale to zero after 1 hour of inactivity
+Configure k8s HPA (or KEDA) to scale each model `Deployment` to zero replicas when it receives no requests for 1 hour. The main API returns HTTP 503 while the pod scales back up.
 
-**Fill in this section with:** auth requirements (open or gated), whether the activate endpoint should be synchronous or kick off a background task, and desired response shape for `GET /models`.
+**Outputs:** `infra/k8s/model-hpa.yaml` or KEDA `ScaledObject`, updated proxy logic
 
-#### TASK-5.3.1 — Model management routes
-Add to `src/interactors/api/`:
-- `GET /models` — list all registered models (run ID, eval score, base model, GCS URI, is_active)
-- `GET /models/active` — return the currently loaded model record
-- `POST /models/{run_id}/activate` — download GGUF from GCS, hot-swap the inference adapter, mark `is_active`
-- `POST /models/{run_id}/infer` — run a one-off inference with the specified model *without* making it active (useful for A/B testing)
+### Feature 9.3 — Model status tracking
 
-**Outputs:** `src/interactors/api/routes_models.py`, `tests/integration/test_model_routes.py`
+#### TASK-9.3.1 — Track and expose active model status
+Add a `status` field to the model record (`loading`, `ready`, `scaling_down`, `offline`). Update status from the controller/reconciler and expose it via `GET /api/models` and `GET /api/models/{model_id}`.
 
-#### TASK-5.3.2 — Hot-swap support in `LlamaCppInferenceAdapter`
-Add `reload(gguf_path: str) → None` that unloads the current model and loads the new one. Wrap the swap in a lock so in-flight requests drain before the model switches.
+**Outputs:** Updated `src/domain/models.py`, updated `src/adapters/database/model_store.py`, updated routes
 
-**Outputs:** Updated `src/adapters/inference.py`
+#### TASK-9.3.2 — Display model status in llm-ui
+Show model status badges on the model list page (ready / loading / offline) with auto-refresh polling.
+
+**Outputs:** UI model status component
+
+### Feature 9.4 — Request handling for loading models
+
+#### TASK-9.4.1 — Return well-formed response when model is not ready
+When a request arrives for a model that is loading or scaled to zero, return HTTP 503 with `{"status": "not_ready_yet", "retry_after": <seconds>}` so clients can back off gracefully.
+
+**Outputs:** Updated proxy/routing logic, updated API docs
 
 ---
 
-### Feature 5.4 — Auto-Register on Eval Pass (Temporal)
+## EPIC-10: LLM API — Inference & API Keys
 
-**Fill in this section with:** whether auto-activate should be the default or opt-in, and any notification hook (Slack/email) wanted on successful registration.
+> Expose per-model inference via the API with per-user API keys and rate limiting.
 
-#### TASK-5.4.1 — `register_model_activity`
-After `export_activity` succeeds, add `register_model_activity` to `src/interactors/temporal/activities.py`:
-1. Calls `GcpStorageAdapter.upload_model()` → GCS URI
-2. Calls `ModelRegistryPort.register()` with eval score and metadata
-3. Calls `ModelRegistryPort.set_active()` if the `auto_activate` workflow param is `True`
+### Feature 10.1 — Per-model inference endpoint
 
-**Outputs:** Updated `src/interactors/temporal/activities.py`, `src/interactors/temporal/workflows.py`
+#### TASK-10.1.1 — `POST /api/models/{model_id}/infer` endpoint
+Add an inference endpoint that routes requests to the model's pod (or adapter) without changing the active model. Show this endpoint in the llm-ui API tab for each model.
 
-#### TASK-5.4.2 — `--auto-activate` flag on `trigger_training` CLI
-```bash
-uv run python -m src.cli.trigger_training \
-  --experiment-name aipet-v2 \
-  --remote-backend kaggle \
-  --auto-activate   # activates the model immediately after eval passes
-```
+**Outputs:** New route in `src/interactors/api/routes/models.py`, UI API tab component
 
-**Outputs:** Updated `src/interactors/cli/trigger_training.py`
+### Feature 10.2 — Per-user API keys
 
----
+#### TASK-10.2.1 — Issue API keys per Auth0 user
+Add `POST /api/keys` (create key) and `GET /api/keys` (list user's keys) endpoints. Store hashed keys in the DB linked to the Auth0 user ID. Keys are presented once on creation.
 
-## EPIC-6: Authentication for Public Access
+**Outputs:** `src/interactors/api/routes/keys.py`, `src/adapters/database/key_store.py`, DB migration
 
-> Add API key authentication so the FastAPI backend can be safely exposed to the internet and called from a public-facing React app.
+#### TASK-10.2.2 — Accept API key as `Authorization: Bearer` on inference endpoints
+Allow inference endpoints to authenticate via either a JWT (Auth0) or a raw API key. Add key lookup to the `require_auth` dependency path.
 
-**Goals:**
-- Protect all API endpoints with a simple, low-friction auth mechanism suitable for a single-team React client
-- No user accounts required — one or more pre-issued API keys is sufficient for now
-- CORS configured so the React app's origin can reach the API
-- Easy to extend to per-user tokens later if needed
+**Outputs:** Updated `src/interactors/api/auth.py`
 
-**Fill in this section with:** the React app's domain/origin (needed for CORS), whether the API key should be embedded in the React app (public, read-only) or kept server-side only, and whether any endpoints (e.g. `GET /health`) should remain unauthenticated.
+### Feature 10.3 — Rate limiting
+
+#### TASK-10.3.1 — Rate limit inference requests per user
+Add rate limiting middleware (e.g. `slowapi`) to cap inference requests per user per minute. Return HTTP 429 with `Retry-After` when the limit is exceeded.
+
+**Outputs:** Updated `src/interactors/api/app.py`, new rate limit config
 
 ---
 
-### Feature 6.1 — API Key Middleware
+## EPIC-11: Fast E2E Tests
 
-#### TASK-6.1.1 — API key store and domain model
-Add `ApiKey` to `src/domain/models.py`:
-```python
-class ApiKey(BaseModel):
-    key_hash: str       # sha256 of the raw key — never store plaintext
-    label: str          # human-readable name, e.g. "react-app-prod"
-    created_at: datetime
-    is_active: bool
-```
-Store keys in the existing DB via an Alembic migration. Seed at least one key on first startup from the `API_KEYS` env var (comma-separated raw keys; hashed on write).
+> Re-enable the E2E test suite on CI/CD without slowing down every PR.
 
-**Outputs:** Updated `src/domain/models.py`, new Alembic migration, `src/adapters/database/api_key_store.py`
+### Feature 11.1 — Scheduled E2E test run
 
-#### TASK-6.1.2 — FastAPI dependency for key validation
-Add `src/interactors/api/auth.py` with a `require_api_key` dependency:
-- Reads the `X-Api-Key` header (or `Authorization: Bearer <key>`)
-- Hashes the incoming value and compares against active keys in the DB
-- Returns HTTP 401 if missing or unrecognised, HTTP 403 if the key exists but `is_active=False`
-- Excluded routes: `GET /health` (unauthenticated liveness probe)
+#### TASK-11.1.1 — Add scheduled E2E workflow
+Add `.github/workflows/e2e.yml` triggered on `schedule: cron` (e.g. once daily at 02:00 UTC) and on `workflow_dispatch`. Run `pytest tests/e2e/` against the deployed environment with appropriate secrets.
 
-**Outputs:** `src/interactors/api/auth.py`, `tests/unit/test_auth.py`
+**Outputs:** `.github/workflows/e2e.yml`
 
-#### TASK-6.1.3 — Apply the dependency to all routers
-Pass `dependencies=[Depends(require_api_key)]` at the router level so new routes are protected by default without per-endpoint decoration.
+#### TASK-11.1.2 — Fix or skip currently broken E2E tests
+Audit `tests/e2e/` and either fix broken tests or mark them `@pytest.mark.skip(reason="...")` with a tracking note. Ensure the suite passes cleanly in the scheduled run.
 
-**Outputs:** Updated `src/interactors/api/app.py`
-
----
-
-### Feature 6.2 — CORS Configuration
-
-#### TASK-6.2.1 — Add `CORSMiddleware`
-Add `fastapi.middleware.cors.CORSMiddleware` to `src/interactors/api/app.py`:
-- `allow_origins` driven by `CORS_ORIGINS` env var (comma-separated list; defaults to `[]` in production, `["*"]` only in local dev when `APP_ENV=development`)
-- `allow_methods=["GET", "POST"]`
-- `allow_headers=["X-Api-Key", "Content-Type"]`
-
-**Outputs:** Updated `src/interactors/api/app.py`
-
-#### TASK-6.2.2 — Document env vars
-Add to `README.md` (or a new `docs/configuration.md`):
-| Env var | Required | Example | Purpose |
-|---|---|---|---|
-| `API_KEYS` | Yes (prod) | `key1,key2` | Comma-separated raw API keys seeded on startup |
-| `CORS_ORIGINS` | Yes (prod) | `https://app.example.com` | Allowed React app origins |
-| `APP_ENV` | No | `development` | Set to `development` to allow wildcard CORS locally |
-
----
-
-### Feature 6.3 — Key Management CLI
-
-#### TASK-6.3.1 — `src/interactors/cli/manage_keys.py`
-Thin CLI for ops use:
-```bash
-uv run python -m src.cli.manage_keys create --label "react-app-prod"
-# Prints the raw key once — store it in your secrets manager
-
-uv run python -m src.cli.manage_keys list
-# Shows label, created_at, is_active (never shows raw key)
-
-uv run python -m src.cli.manage_keys revoke --label "react-app-prod"
-```
-
-**Outputs:** `src/interactors/cli/manage_keys.py`, `tests/cli/test_manage_keys.py`
-
----
-
-### Feature 6.4 — Integration Tests
-
-#### TASK-6.4.1 — Auth integration tests
-Cover the full request cycle with a real test DB:
-- Unauthenticated request → 401
-- Wrong key → 401
-- Revoked key → 403
-- Valid key → 200 on a protected endpoint
-- `GET /health` → 200 with no key
-
-**Outputs:** `tests/integration/test_auth.py`
+**Outputs:** Updated `tests/e2e/` files

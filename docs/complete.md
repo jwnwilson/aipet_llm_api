@@ -129,3 +129,83 @@ Worker runs outside Docker via `uv run python -m src.temporal.worker`; handles t
 - `evaluate_activity` and `export_activity` wired end-to-end; GGUF written to `models/aipet.gguf` only when eval ≥ 95%.
 - Async API endpoints added for workflow triggering: `POST /workflows/training`, `POST /workflows/evaluate`, `POST /workflows/export`.
 - Alembic migrations in place for workflow run tracking.
+
+---
+
+## EPIC-3: CI/CD Automation
+
+### Feature 3.1 — GitHub Actions deploy pipeline
+
+#### TASK-3.1.1 — `.github/workflows/deploy.yml`
+Triggers on successful `Test` workflow run against `main`; OIDC via `secrets.AWS_ROLE_ARN`; builds linux/arm64 image with GHA layer cache; tags `:<sha>` and `:latest`; applies k8s manifests and waits for rollout with `--timeout=600s`.
+**Outputs:** `.github/workflows/deploy.yml`
+
+#### TASK-3.1.2 — GitHub secrets seeded
+`AWS_ROLE_ARN` and `KUBECONFIG` (and additional secrets for DB, ECR, Auth0, Kaggle, RunPod, Vast) set via `gh secret set` after `terraform apply`.
+
+#### TASK-3.1.3 — k8s deployment uses ECR URL
+Deploy pipeline does `sed -i "s|<ECR_REPOSITORY_URL>:latest|$IMAGE|g"` at deploy time; static manifests keep the placeholder intentionally.
+**Outputs:** `infra/k8s/aipet-llm/deployment.yaml`, `infra/k8s/temporal/worker.yaml`
+
+#### TASK-3.1.4 — Terraform state files in `.gitignore`
+`.gitignore` entries: `infra/terraform/**/.terraform/`, `infra/terraform/*.tfstate*`, `infra/terraform/**/.terraform.lock.hcl`.
+
+---
+
+## EPIC-4: Production Hardening
+
+### Feature 4.1 — Early stopping verification
+
+#### TASK-4.1.1 — `--patience` smoke-test
+`--patience` flag is implemented in `src/interactors/cli/training/train.py`; `EarlyStoppingCallback` wired in trainer. Verified via `uv run python -m src.cli.train --dry-run --patience 1`.
+
+#### TASK-4.1.2 — Training flags documented in `README.md`
+`--patience`, `--warmup-ratio`, `--base-model`, and `--remote-backend` documented with example invocations. Auth0 and CORS env vars also documented.
+**Outputs:** Updated `README.md`
+
+---
+
+## EPIC-5: Auto Deployment & Model Availability
+
+> Implemented with **AWS S3** instead of GCP GCS. All functionality is equivalent.
+
+### Feature 5.1 — Cloud Storage Adapter (AWS S3)
+`S3StorageAdapter` in `src/adapters/storage/s3.py` implements `StoragePort`; uploads/downloads GGUF artifacts keyed by run ID. Config via `AWS_S3_BUCKET` and standard boto3 credential chain.
+**Outputs:** `src/adapters/storage/s3.py`, `tests/unit/test_s3_storage.py`
+
+### Feature 5.2 — Upload wired into `export_activity`
+After GGUF is written, `export_activity` calls `upload_model()` when `AWS_S3_BUCKET` is set; S3 key logged so the Temporal UI shows the artifact location.
+**Outputs:** Updated `src/interactors/temporal/activities.py`
+
+### Feature 5.3 — Model management API endpoints
+- `GET /api/models` — list all registered models
+- `GET /api/models/{model_id}` — get model by ID
+- `POST /api/models/{model_id}/activate` — download GGUF from S3, hot-swap the inference adapter, mark as active
+- `POST /api/models` — register a new model record
+**Outputs:** `src/interactors/api/routes/models.py`, `tests/integration/test_model_workflow_integration.py`
+
+### Feature 5.4 — Hot-swap support in `LlamaCppInferenceAdapter`
+`release()` method unloads the current model from RAM; `activate_model` route acquires new GGUF from S3, calls `release()` on the old adapter, and loads the new one. No explicit lock needed — FastAPI handles request concurrency.
+**Outputs:** Updated `src/adapters/inference.py`
+
+---
+
+## EPIC-6: Authentication for Public Access
+
+> Implemented with **Auth0 JWT authentication** instead of static API keys. Provides stronger security and user identity without managing key distribution.
+
+### Feature 6.1 — Auth0 JWT middleware
+`Auth0Adapter` in `src/adapters/auth/auth0.py` validates JWTs against the Auth0 JWKS endpoint. `FakeAuthAdapter` in `src/adapters/auth/fake.py` used in local dev (`APP_ENV=development`). `require_auth`, `get_current_user`, `require_approved`, `require_admin` dependencies in `src/interactors/api/auth.py`.
+**Outputs:** `src/adapters/auth/auth0.py`, `src/adapters/auth/fake.py`, `src/interactors/api/auth.py`
+
+### Feature 6.2 — Auth applied to all routers
+All routers use `require_approved` or `require_admin` as router-level dependency; `GET /health` remains unauthenticated.
+**Outputs:** Updated `src/interactors/api/app.py` and all route files
+
+### Feature 6.3 — CORS configured
+`CORSMiddleware` reads `CORS_ORIGINS` env var; defaults to `[]` in production, `[localhost:*]` when `APP_ENV=development`.
+**Outputs:** Updated `src/interactors/api/app.py`
+
+### Feature 6.4 — Auth integration tests
+Full request cycle tested: unauthenticated → 401, invalid token → 401, valid token → 200, `GET /health` → 200 without token.
+**Outputs:** `tests/integration/test_auth.py`
