@@ -14,6 +14,18 @@ module "ecr_temporal_ui" {
   image_retention_count = var.image_retention_count
 }
 
+module "acm_ui" {
+  source = "./modules/acm"
+  domain = "llm.jwnwilson.co.uk"
+}
+
+module "s3_ui" {
+  source              = "./modules/s3_static"
+  name                = "llm-api-ui"
+  domain              = "llm.jwnwilson.co.uk"
+  acm_certificate_arn = module.acm_ui.certificate_arn
+}
+
 module "iam" {
   source                     = "./modules/iam"
   repo_name                  = var.repo_name
@@ -22,9 +34,12 @@ module "iam" {
   ecr_push_policy_arn        = module.ecr.ecr_push_policy_arn
   extra_ecr_push_policy_arns = [module.ecr_temporal_ui.ecr_push_policy_arn]
   ecr_pull_repo_arns         = [module.ecr.repository_arn, module.ecr_temporal_ui.repository_arn]
+  ui_bucket_arn              = module.s3_ui.bucket_arn
+  ui_distribution_arn        = module.s3_ui.distribution_arn
 }
 
 module "dns" {
-  source  = "./modules/dns"
-  vps_ip  = var.vps_ip
+  source       = "./modules/dns"
+  vps_ip       = var.vps_ip
+  ui_cf_domain = module.s3_ui.cloudfront_domain
 }

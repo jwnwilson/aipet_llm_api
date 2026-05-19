@@ -38,3 +38,18 @@ output "aipet_llm_api_fqdn" {
   description = "DNS name for the aipet LLM API"
   value       = module.dns.fqdn
 }
+
+output "ui_bucket_name" {
+  description = "S3 bucket for the UI — set as UI_BUCKET GitHub secret after apply"
+  value       = module.s3_ui.bucket_name
+}
+
+output "ui_distribution_id" {
+  description = "CloudFront distribution ID for the UI — set as UI_CF_DISTRIBUTION_ID GitHub secret after apply"
+  value       = module.s3_ui.distribution_id
+}
+
+output "ui_fqdn" {
+  description = "Public URL for the UI"
+  value       = module.dns.ui_fqdn
+}
