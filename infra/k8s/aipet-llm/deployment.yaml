@@ -34,7 +34,7 @@ spec:
             - containerPort: 8000
           env:
             - name: INFERENCE_DISABLED
-              value: "true"
+              value: "false"
             - name: MODEL_PATH
               value: /app/models/aipet.gguf
             - name: MODEL_S3_KEY
