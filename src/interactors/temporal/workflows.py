@@ -82,6 +82,12 @@ class TrainingPipelineWorkflow:
 
     @workflow.run
     async def run(self, config: ExperimentConfig) -> PipelineResult:
+        workflow.logger.info(
+            "ExperimentConfig received: model=%s epochs=%d patience=%d warmup_ratio=%.4f "
+            "remote_backend=%s skip_generate=%s",
+            config.model, config.epochs, config.patience, config.warmup_ratio,
+            config.remote_backend, config.skip_generate,
+        )
         result = PipelineResult(run_id=config.run_id, experiment_name=config.experiment_name)
 
         if config.skip_generate:
@@ -136,8 +142,8 @@ class TrainingPipelineWorkflow:
                 force_qlora=config.force_qlora,
             ),
             start_to_close_timeout=timedelta(hours=6),
-            heartbeat_timeout=timedelta(minutes=5),
-            retry_policy=_NO_RETRY,
+            heartbeat_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
         if config.run_id:

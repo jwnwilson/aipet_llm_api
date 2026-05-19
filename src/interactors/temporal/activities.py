@@ -277,17 +277,32 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
 
     loop = asyncio.get_event_loop()
 
-    # Run submit in an executor — it calls subprocess + time.sleep (blocks event loop).
-    heartbeat_task = asyncio.ensure_future(_heartbeat_loop("train_submit"))
-    try:
-        run_id = await loop.run_in_executor(None, lambda: adapter.submit(remote_config))
-    except Exception as exc:
-        raise ApplicationError(f"Remote submit failed: {exc}") from exc
-    finally:
-        heartbeat_task.cancel()
-        await asyncio.gather(heartbeat_task, return_exceptions=True)
+    # Resume from a prior attempt if the remote job was already submitted.
+    info = activity.info()
+    prior_run_id: str | None = None
+    if info.heartbeat_details:
+        prev = info.heartbeat_details[0]
+        if isinstance(prev, dict) and prev.get("run_id"):
+            prior_run_id = prev["run_id"]
 
-    activity.logger.info("Remote job submitted: adapter=%s run_id=%s", type(adapter).__name__, run_id)
+    if prior_run_id:
+        activity.logger.info(
+            "Resuming poll for existing remote job: adapter=%s run_id=%s",
+            type(adapter).__name__, prior_run_id,
+        )
+        run_id = prior_run_id
+    else:
+        # Run submit in an executor — it calls subprocess + time.sleep (blocks event loop).
+        heartbeat_task = asyncio.ensure_future(_heartbeat_loop("train_submit"))
+        try:
+            run_id = await loop.run_in_executor(None, lambda: adapter.submit(remote_config))
+        except Exception as exc:
+            raise ApplicationError(f"Remote submit failed: {exc}") from exc
+        finally:
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+
+        activity.logger.info("Remote job submitted: adapter=%s run_id=%s", type(adapter).__name__, run_id)
 
     started_at = time.time()
 
@@ -319,7 +334,8 @@ async def _train_remote(config: TrainConfig, adapter: RemoteTrainingPort) -> Che
                 log.info("Instance output (run_id=%s):\n%s", run_id, logs)
 
             # Detailed heartbeat after each poll (background loop covers gaps between polls).
-            activity.heartbeat({"status": status, "elapsed_s": elapsed_s, "logs": logs})
+            # run_id is included so a restarted worker can resume polling without resubmitting.
+            activity.heartbeat({"status": status, "elapsed_s": elapsed_s, "logs": logs, "run_id": run_id})
 
             if config.db_run_id:
                 try:

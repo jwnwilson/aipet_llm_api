@@ -116,6 +116,13 @@ async def trigger_run(
     if remote_backend == "local":
         remote_backend = ""
 
+    log.info(
+        "Trigger run: model=%s epochs=%s patience=%s warmup_ratio=%s "
+        "skip_generate=%s remote_backend=%s base_model=%s",
+        body.model_id, epochs, patience, warmup_ratio,
+        skip_generate, remote_backend, base_model,
+    )
+
     try:
         from temporalio.client import Client
         from interactors.temporal.worker import TASK_QUEUE

@@ -353,6 +353,7 @@ class TestTrainRemotePolling:
 
         monkeypatch.setattr(acts, "_heartbeat_loop", _noop_heartbeat_loop)
         monkeypatch.setattr(acts.activity, "logger", MagicMock())
+        monkeypatch.setattr(acts.activity, "info", MagicMock(return_value=MagicMock(heartbeat_details=())))
         return acts
 
     @pytest.mark.asyncio
@@ -430,6 +431,7 @@ class TestTrainRemoteProgress:
         monkeypatch.setattr(acts, "_heartbeat_loop", _noop_heartbeat_loop)
         monkeypatch.setattr(acts.activity, "heartbeat", MagicMock())
         monkeypatch.setattr(acts.activity, "logger", MagicMock())
+        monkeypatch.setattr(acts.activity, "info", MagicMock(return_value=MagicMock(heartbeat_details=())))
         return acts
 
     @pytest.mark.asyncio
