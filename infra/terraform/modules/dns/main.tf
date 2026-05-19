@@ -18,3 +18,12 @@ resource "aws_route53_record" "temporal" {
   ttl     = 300
   records = [var.vps_ip]
 }
+
+resource "aws_route53_record" "llm_ui" {
+  count   = var.ui_cf_domain != "" ? 1 : 0
+  zone_id = data.aws_route53_zone.zone.zone_id
+  name    = "llm.${trimsuffix(var.zone_name, ".")}"
+  type    = "CNAME"
+  ttl     = 300
+  records = [var.ui_cf_domain]
+}
